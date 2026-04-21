@@ -217,6 +217,7 @@ h1 {
 .text-button {
   padding: 5px 9px;
   color: var(--accent-dark);
+  white-space: nowrap;
 }
 
 .text-button:disabled,
@@ -490,6 +491,54 @@ h1 {
   text-align: center;
 }
 
+.toolbar-font-control {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.indent-control {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.indent-control input {
+  width: 58px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  outline: 0;
+  padding: 5px 8px;
+  background: var(--panel);
+  color: var(--ink);
+  text-align: right;
+}
+
+.font-refresh-button {
+  flex: 0 0 auto;
+  min-width: max-content;
+}
+
+.toolbar-font-control select {
+  width: 180px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  outline: 0;
+  padding: 5px 8px;
+  background: var(--panel);
+  color: var(--ink);
+}
+
 .paper-toggle.active {
   border-color: rgba(35, 109, 107, 0.45);
   color: var(--accent-dark);
@@ -532,8 +581,8 @@ h1 {
   width: 88px;
 }
 
-.font-family-control select {
-  width: 180px;
+.paper-toolbar .paper-size-control select {
+  width: 124px;
 }
 
 .paper-zoom-control {
@@ -576,6 +625,10 @@ h1 {
 .search-panel {
   position: relative;
   margin: 0;
+}
+
+.chapter-search {
+  margin-bottom: 10px;
 }
 
 .search-panel > input {
@@ -627,8 +680,7 @@ h1 {
 .writing-canvas {
   display: grid;
   min-height: 0;
-  grid-template-rows: auto minmax(0, 1fr);
-  gap: 10px;
+  grid-template-rows: minmax(0, 1fr);
   padding: 0 28px 12px;
 }
 
@@ -636,16 +688,12 @@ h1 {
   overflow: auto;
   justify-items: center;
   align-items: start;
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
   padding: 0 28px 28px;
   background:
     linear-gradient(90deg, rgba(37, 32, 28, 0.04) 1px, transparent 1px),
     linear-gradient(180deg, rgba(37, 32, 28, 0.035) 1px, transparent 1px);
   background-size: 28px 28px;
-}
-
-.writing-canvas.paper-mode .search-panel {
-  width: min(var(--paper-width), 100%);
 }
 
 .paper-pages {
@@ -675,6 +723,19 @@ h1 {
   transform-origin: top left;
 }
 
+.paper-page.whole-selected::after {
+  content: "";
+  position: absolute;
+  inset:
+    var(--paper-margin-top)
+    var(--paper-margin-right)
+    var(--paper-margin-bottom)
+    var(--paper-margin-left);
+  border-radius: 2px;
+  background: rgba(22, 96, 92, 0.18);
+  pointer-events: none;
+}
+
 .page-number {
   position: absolute;
   right: 14px;
@@ -685,13 +746,34 @@ h1 {
   font-weight: 800;
 }
 
+.paper-text-preview {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  padding:
+    var(--paper-margin-top)
+    var(--paper-margin-right)
+    var(--paper-margin-bottom)
+    var(--paper-margin-left);
+  color: #201a15;
+  font-family: var(--editor-font-family, "Iowan Old Style", Georgia, "Nanum Myeongjo", serif);
+  line-height: var(--page-line-height-px);
+  pointer-events: none;
+  white-space: pre;
+}
+
+.paper-preview-line {
+  height: var(--page-line-height-px);
+  line-height: var(--page-line-height-px);
+}
+
+.paper-preview-line.indented {
+  padding-left: var(--manuscript-text-indent, 0px);
+}
+
 .paged-manuscript {
   width: 100%;
-  height: calc(
-    var(--paper-margin-top) +
-    var(--paper-margin-bottom) +
-    (var(--page-text-lines) * var(--page-line-height-px))
-  );
+  height: 100%;
   max-height: 100%;
   min-height: 0;
   margin: 0;
@@ -706,9 +788,36 @@ h1 {
     var(--paper-margin-bottom)
     var(--paper-margin-left);
   background: transparent;
-  color: #201a15;
+  color: transparent;
+  caret-color: #201a15;
   font-family: var(--editor-font-family, "Iowan Old Style", Georgia, "Nanum Myeongjo", serif);
   line-height: var(--paper-line-height);
+}
+
+.paged-manuscript::selection {
+  color: transparent;
+  background: rgba(35, 109, 107, 0.22);
+}
+
+.paper-rich-manuscript {
+  overflow: hidden;
+  color: #201a15;
+  caret-color: #201a15;
+  white-space: pre-wrap;
+}
+
+.paper-rich-manuscript::selection {
+  color: #201a15;
+  background: rgba(35, 109, 107, 0.22);
+}
+
+.paper-edit-paragraph {
+  min-height: calc(1em * var(--paper-line-height));
+  text-indent: var(--manuscript-text-indent, 0px);
+}
+
+.paper-edit-paragraph.continuation {
+  text-indent: 0;
 }
 
 .manuscript {
@@ -727,6 +836,16 @@ h1 {
   font-family: "Iowan Old Style", Georgia, "Nanum Myeongjo", serif;
   font-size: 19px;
   line-height: 1.88;
+}
+
+.rich-manuscript {
+  overflow: auto;
+  white-space: pre-wrap;
+}
+
+.rich-manuscript .manuscript-line {
+  min-height: 1.88em;
+  text-indent: var(--manuscript-text-indent, 0px);
 }
 
 .settings-page,

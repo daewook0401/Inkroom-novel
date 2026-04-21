@@ -1,6 +1,7 @@
 import { NavLink, Navigate, Route, Routes, useLocation, useParams } from "react-router-dom";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { loadDesktopState, saveDesktopState } from "./desktopDb.js";
+import { createHwpxBlob } from "./hwpxExport.js";
 
 const STORAGE_KEY = "inkroom:react:v3";
 const PREVIOUS_KEYS = ["inkroom:react:v2", "inkroom:react:v1", "inkroom:v1"];
@@ -10,19 +11,63 @@ const SETTINGS_SECTIONS = [
   { id: "beats", title: "플롯 보드", type: "cards" },
   { id: "relationships", title: "관계도", type: "relationships" },
 ];
+const MM_TO_PX = 96 / 25.4;
+const PT_TO_PX = 96 / 72;
+const DEFAULT_PRINT_MARGINS = {
+  top: 14.3 * MM_TO_PX,
+  right: 15.3 * MM_TO_PX,
+  bottom: 14.3 * MM_TO_PX,
+  left: 15.3 * MM_TO_PX,
+};
 const PAPER_PRESETS = {
-  a4: { label: "A4", width: 794, height: 1123 },
-  b5: { label: "B5", width: 665, height: 940 },
+  a4: {
+    label: "A4",
+    width: 210 * MM_TO_PX,
+    height: 297 * MM_TO_PX,
+    margins: DEFAULT_PRINT_MARGINS,
+  },
+  b4: {
+    label: "B4",
+    width: 257 * MM_TO_PX,
+    height: 364 * MM_TO_PX,
+    margins: DEFAULT_PRINT_MARGINS,
+  },
+  b5: {
+    label: "B5",
+    width: 182 * MM_TO_PX,
+    height: 257 * MM_TO_PX,
+    margins: DEFAULT_PRINT_MARGINS,
+  },
+  kakao: {
+    label: "카카오페이지",
+    width: 72 * MM_TO_PX,
+    height: 109.8 * MM_TO_PX,
+    margins: {
+      top: 10 * MM_TO_PX,
+      right: 8 * MM_TO_PX,
+      bottom: 10 * MM_TO_PX,
+      left: 8 * MM_TO_PX,
+    },
+    textIndent: 10 * PT_TO_PX,
+    lineHeightCorrection: 0.95,
+  },
 };
 const DEFAULT_PAPER = {
   enabled: false,
   size: "a4",
-  margins: { top: 54, right: 58, bottom: 54, left: 58 },
-  marginUnit: "px",
+  dimensions: { width: PAPER_PRESETS.a4.width, height: PAPER_PRESETS.a4.height },
+  margins: DEFAULT_PRINT_MARGINS,
+  marginUnit: "mm",
+  dimensionUnit: "mm",
+  textIndent: 0,
   fontFamily: "Iowan Old Style",
   lineHeight: 1.8,
   zoom: 0.85,
 };
+const MIN_EDITOR_FONT_SIZE = 5;
+const MAX_EDITOR_FONT_SIZE = 30;
+const MIN_PAPER_ZOOM = 0.35;
+const MAX_PAPER_ZOOM = 2.5;
 const FALLBACK_FONTS = [
   "Iowan Old Style",
   "Georgia",
@@ -34,9 +79,9 @@ const FALLBACK_FONTS = [
 const MARGIN_UNITS = {
   px: { label: "px", factor: 1 },
   mm: { label: "mm", factor: 96 / 25.4 },
-  pt: { label: "pt", factor: 96 / 72 },
+  pt: { label: "pt", factor: PT_TO_PX },
 };
-const ptToPx = (pt) => pt * (96 / 72);
+const ptToPx = (pt) => pt * PT_TO_PX;
 
 const now = () => new Date().toISOString();
 const todayKey = () => new Date().toISOString().slice(0, 10);
@@ -112,6 +157,10 @@ function normalizeState(raw) {
   const paper = {
     ...DEFAULT_PAPER,
     ...(base.preferences?.paper || {}),
+    dimensions: {
+      ...DEFAULT_PAPER.dimensions,
+      ...(base.preferences?.paper?.dimensions || {}),
+    },
     margins: {
       ...DEFAULT_PAPER.margins,
       ...(base.preferences?.paper?.margins || {}),
@@ -126,14 +175,24 @@ function normalizeState(raw) {
       editorFontSize: Number(base.preferences?.editorFontSize || 19),
       paper: {
         ...paper,
-        size: PAPER_PRESETS[paper.size] ? paper.size : DEFAULT_PAPER.size,
+        size: PAPER_PRESETS[paper.size] || paper.size === "custom" ? paper.size : DEFAULT_PAPER.size,
         marginUnit: MARGIN_UNITS[paper.marginUnit] ? paper.marginUnit : DEFAULT_PAPER.marginUnit,
+        dimensionUnit: MARGIN_UNITS[paper.dimensionUnit]
+          ? paper.dimensionUnit
+          : MARGIN_UNITS[paper.marginUnit]
+            ? paper.marginUnit
+            : DEFAULT_PAPER.dimensionUnit,
         fontFamily:
           typeof paper.fontFamily === "string" && paper.fontFamily.trim()
             ? paper.fontFamily
             : DEFAULT_PAPER.fontFamily,
         lineHeight: clampNumber(paper.lineHeight, 1.2, 2.4, DEFAULT_PAPER.lineHeight),
-        zoom: clampNumber(paper.zoom, 0.35, 1.25, DEFAULT_PAPER.zoom),
+        zoom: clampNumber(paper.zoom, MIN_PAPER_ZOOM, MAX_PAPER_ZOOM, DEFAULT_PAPER.zoom),
+        textIndent: clampNumber(paper.textIndent, 0, 240, DEFAULT_PAPER.textIndent),
+        dimensions: {
+          width: clampNumber(paper.dimensions.width, 160, 2400, DEFAULT_PAPER.dimensions.width),
+          height: clampNumber(paper.dimensions.height, 160, 3200, DEFAULT_PAPER.dimensions.height),
+        },
         margins: {
           top: clampNumber(paper.margins.top, 20, 140, DEFAULT_PAPER.margins.top),
           right: clampNumber(paper.margins.right, 20, 140, DEFAULT_PAPER.margins.right),
@@ -164,6 +223,25 @@ function marginFromUnit(value, unit, fallbackPx) {
   return clampNumber(Number(value) * factor, 20, 140, fallbackPx);
 }
 
+function dimensionFromUnit(value, unit, fallbackPx) {
+  const factor = MARGIN_UNITS[unit]?.factor || 1;
+  return clampNumber(Number(value) * factor, 160, 3200, fallbackPx);
+}
+
+function lengthFromUnit(value, unit, minPx, maxPx, fallbackPx) {
+  const factor = MARGIN_UNITS[unit]?.factor || 1;
+  return clampNumber(Number(value) * factor, minPx, maxPx, fallbackPx);
+}
+
+function getPaperDimensions(paper) {
+  if (paper.size === "custom") return paper.dimensions || DEFAULT_PAPER.dimensions;
+  return PAPER_PRESETS[paper.size] || PAPER_PRESETS.a4;
+}
+
+function getPaperPreset(paper) {
+  return PAPER_PRESETS[paper.size] || null;
+}
+
 function fontStack(fontFamily) {
   const safeFont = (fontFamily || DEFAULT_PAPER.fontFamily).replace(/"/g, '\\"');
   return `"${safeFont}", "Nanum Myeongjo", serif`;
@@ -191,6 +269,10 @@ function loadInitialState() {
 
 function downloadText(filename, content, type) {
   const blob = new Blob([content], { type });
+  downloadBlob(filename, blob);
+}
+
+function downloadBlob(filename, blob) {
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
@@ -571,10 +653,10 @@ export default function App() {
   };
 
   const notifyDownload = (filename) => {
-    setNotice({ id: uid("notice"), message: `${filename} 다운로드를 준비했습니다.` });
+    setNotice({ id: uid("notice"), message: `${filename} 다운로드 완료했습니다.` });
   };
 
-  const exportProject = (format) => {
+  const exportProject = async (format) => {
     if (!activeProject) return;
     if (format === "json") {
       const filename = `${slug(activeProject.title)}.inkroom.json`;
@@ -603,6 +685,22 @@ export default function App() {
         projectToTxt(activeProject, chapters),
         "text/plain;charset=utf-8",
       );
+      notifyDownload(filename);
+      return;
+    }
+
+    if (format === "hwpx") {
+      const scope = window.prompt(
+        "HWPX로 다운로드할 범위를 선택하세요.\n1: 지금 보는 화수\n2: 전체 작품",
+        "1",
+      );
+      if (scope === null) return;
+      const currentOnly = scope.trim() !== "2";
+      const chapters = currentOnly && activeChapter ? [activeChapter] : activeProject.chapters;
+      const suffix = currentOnly && activeChapter ? `-${slug(activeChapter.title || "current")}` : "";
+      const filename = `${slug(activeProject.title)}${suffix}.hwpx`;
+      const blob = await createHwpxBlob({ ...activeProject, chapters }, state.preferences || {});
+      downloadBlob(filename, blob);
       notifyDownload(filename);
       return;
     }
@@ -641,6 +739,9 @@ export default function App() {
         onDeleteChapter={deleteChapter}
         onDragChapter={setDraggedChapterId}
         onDropChapter={reorderChapter}
+        query={query}
+        searchResults={searchResults}
+        onQuery={setQuery}
       />
 
       <main className="workspace-panel">
@@ -666,12 +767,8 @@ export default function App() {
                 chapter={activeChapter}
                 stats={stats}
                 saveStatus={saveStatus}
-                query={query}
-                searchResults={searchResults}
                 editorFontSize={state.preferences?.editorFontSize || 19}
                 paper={state.preferences?.paper || DEFAULT_PAPER}
-                onQuery={setQuery}
-                onSelectChapter={selectChapter}
                 onUpdateProject={updateProject}
                 onUpdateChapter={updateChapter}
                 onUpdateBody={updateBody}
@@ -747,6 +844,7 @@ function TopNav({ saveStatus, focusMode, onToggleFocus, onExport, onImport }) {
         <span className={`save-state ${saveStatus === "저장 중" ? "dirty" : ""}`}>{saveStatus}</span>
         <button className="text-button" onClick={() => onExport("md")}>Markdown</button>
         <button className="text-button" onClick={() => onExport("txt")}>TXT</button>
+        <button className="text-button" onClick={() => onExport("hwpx")}>HWPX</button>
         <button className="text-button" onClick={() => onExport("json")}>백업</button>
         <button className="text-button" onClick={onImport}>불러오기</button>
         <button className="primary-button" onClick={onToggleFocus}>
@@ -769,6 +867,9 @@ function LibraryPanel({
   onDeleteChapter,
   onDragChapter,
   onDropChapter,
+  query,
+  searchResults,
+  onQuery,
 }) {
   return (
     <aside className="library-panel" aria-label="작품과 챕터">
@@ -807,6 +908,13 @@ function LibraryPanel({
           <span>챕터</span>
           <button className="text-button" onClick={onCreateChapter}>추가</button>
         </div>
+        <SearchBox
+          className="chapter-search"
+          query={query}
+          results={searchResults}
+          onQuery={onQuery}
+          onSelectChapter={onSelectChapter}
+        />
         <div className="chapter-list">
           {activeProject.chapters.map((chapter, index) => (
             <button
@@ -842,12 +950,8 @@ function WritingView({
   chapter,
   stats,
   saveStatus,
-  query,
-  searchResults,
   editorFontSize,
   paper,
-  onQuery,
-  onSelectChapter,
   onUpdateProject,
   onUpdateChapter,
   onUpdateBody,
@@ -858,20 +962,52 @@ function WritingView({
     [...new Set([paper.fontFamily, ...FALLBACK_FONTS])].filter(Boolean),
   );
   const changeFontSize = (delta) => {
-    const nextSize = Math.max(14, Math.min(30, editorFontSize + delta));
+    const nextSize = Math.max(MIN_EDITOR_FONT_SIZE, Math.min(MAX_EDITOR_FONT_SIZE, editorFontSize + delta));
     onUpdatePreferences({ editorFontSize: nextSize });
   };
   const editorFontPx = ptToPx(editorFontSize);
-  const paperPreset = PAPER_PRESETS[paper.size] || PAPER_PRESETS.a4;
+  const paperDimensions = getPaperDimensions(paper);
   const changePaper = (patch) => {
     onUpdatePreferences({
       paper: {
         ...paper,
         ...patch,
+        dimensions: {
+          ...(paper.dimensions || DEFAULT_PAPER.dimensions),
+          ...(patch.dimensions || {}),
+        },
         margins: {
           ...(paper.margins || DEFAULT_PAPER.margins),
           ...(patch.margins || {}),
         },
+      },
+    });
+  };
+  const applyPaperSize = (size) => {
+    const preset = PAPER_PRESETS[size];
+    if (!preset) {
+      changePaper({ size: "custom" });
+      return;
+    }
+    const nextPaper = {
+      ...paper,
+      size,
+      dimensions: { width: preset.width, height: preset.height },
+      margins: preset.margins ? preset.margins : paper.margins,
+      textIndent: typeof preset.textIndent === "number" ? preset.textIndent : paper.textIndent,
+      ...(preset.margins ? { marginUnit: "mm", dimensionUnit: "mm" } : {}),
+    };
+    onUpdatePreferences({
+      paper: nextPaper,
+      ...(size === "kakao" ? { editorFontSize: 10 } : {}),
+    });
+  };
+  const changeDimension = (side, value) => {
+    const unit = paper.dimensionUnit || paper.marginUnit || DEFAULT_PAPER.dimensionUnit;
+    changePaper({
+      size: "custom",
+      dimensions: {
+        [side]: dimensionFromUnit(value, unit, DEFAULT_PAPER.dimensions[side]),
       },
     });
   };
@@ -882,18 +1018,24 @@ function WritingView({
       },
     });
   };
+  const changeTextIndent = (value) => {
+    changePaper({
+      textIndent: lengthFromUnit(value, "pt", 0, 240, DEFAULT_PAPER.textIndent),
+    });
+  };
   const paperStyle = {
-    "--paper-width": `${paperPreset.width}px`,
-    "--paper-height": `${paperPreset.height}px`,
+    "--paper-width": `${paperDimensions.width}px`,
+    "--paper-height": `${paperDimensions.height}px`,
     "--paper-margin-top": `${paper.margins.top}px`,
     "--paper-margin-right": `${paper.margins.right}px`,
     "--paper-margin-bottom": `${paper.margins.bottom}px`,
     "--paper-margin-left": `${paper.margins.left}px`,
     "--paper-line-height": paper.lineHeight,
+    "--manuscript-text-indent": `${paper.textIndent || 0}px`,
     "--editor-font-family": fontStack(paper.fontFamily),
     "--paper-zoom": paper.zoom,
-    "--paper-scaled-width": `${paperPreset.width * paper.zoom}px`,
-    "--paper-scaled-height": `${paperPreset.height * paper.zoom}px`,
+    "--paper-scaled-width": `${paperDimensions.width * paper.zoom}px`,
+    "--paper-scaled-height": `${paperDimensions.height * paper.zoom}px`,
   };
   const refreshFonts = async () => {
     try {
@@ -943,10 +1085,33 @@ function WritingView({
         </label>
         <div className="font-size-control" aria-label="글자 크기">
           <span>글자</span>
-          <button type="button" onClick={() => changeFontSize(-1)} disabled={editorFontSize <= 14}>-</button>
+          <button type="button" onClick={() => changeFontSize(-1)} disabled={editorFontSize <= MIN_EDITOR_FONT_SIZE}>-</button>
           <strong>{editorFontSize}pt</strong>
-          <button type="button" onClick={() => changeFontSize(1)} disabled={editorFontSize >= 30}>+</button>
+          <button type="button" onClick={() => changeFontSize(1)} disabled={editorFontSize >= MAX_EDITOR_FONT_SIZE}>+</button>
         </div>
+        <label className="toolbar-font-control">
+          <span>폰트</span>
+          <select
+            value={paper.fontFamily || DEFAULT_PAPER.fontFamily}
+            onChange={(event) => changePaper({ fontFamily: event.target.value })}
+          >
+            {fontFamilies.map((font) => (
+              <option key={font} value={font}>{font}</option>
+            ))}
+          </select>
+        </label>
+        <button type="button" className="text-button font-refresh-button" onClick={refreshFonts}>폰트 읽기</button>
+        <label className="indent-control">
+          <span>들여쓰기</span>
+          <input
+            type="number"
+            min="0"
+            step="1"
+            value={marginToUnit(paper.textIndent || 0, "pt")}
+            onChange={(event) => changeTextIndent(event.target.value)}
+          />
+          <span>pt</span>
+        </label>
         <button
           type="button"
           className={`text-button paper-toggle ${paper.enabled ? "active" : ""}`}
@@ -962,33 +1127,45 @@ function WritingView({
 
       {paper.enabled && (
         <div className="paper-toolbar" aria-label="편집 용지 설정">
-          <label>
+          <label className="paper-size-control">
             용지
-            <select value={paper.size} onChange={(event) => changePaper({ size: event.target.value })}>
+            <select value={paper.size} onChange={(event) => applyPaperSize(event.target.value)}>
               {Object.entries(PAPER_PRESETS).map(([value, preset]) => (
                 <option key={value} value={value}>{preset.label}</option>
               ))}
+              <option value="custom">사용자 지정</option>
             </select>
           </label>
-          <label className="font-family-control">
-            폰트
-            <select
-              value={paper.fontFamily || DEFAULT_PAPER.fontFamily}
-              onChange={(event) => changePaper({ fontFamily: event.target.value })}
-            >
-              {fontFamilies.map((font) => (
-                <option key={font} value={font}>{font}</option>
-              ))}
-            </select>
-          </label>
-          <button type="button" className="text-button" onClick={refreshFonts}>읽기</button>
           <label>
             단위
-            <select value={paper.marginUnit || DEFAULT_PAPER.marginUnit} onChange={(event) => changePaper({ marginUnit: event.target.value })}>
+            <select
+              value={paper.marginUnit || DEFAULT_PAPER.marginUnit}
+              onChange={(event) => changePaper({ marginUnit: event.target.value, dimensionUnit: event.target.value })}
+            >
               {Object.entries(MARGIN_UNITS).map(([value, unit]) => (
                 <option key={value} value={value}>{unit.label}</option>
               ))}
             </select>
+          </label>
+          <label>
+            폭
+            <input
+              type="number"
+              min="0"
+              step="0.5"
+              value={marginToUnit(paperDimensions.width, paper.dimensionUnit || paper.marginUnit)}
+              onChange={(event) => changeDimension("width", event.target.value)}
+            />
+          </label>
+          <label>
+            길이
+            <input
+              type="number"
+              min="0"
+              step="0.5"
+              value={marginToUnit(paperDimensions.height, paper.dimensionUnit || paper.marginUnit)}
+              onChange={(event) => changeDimension("height", event.target.value)}
+            />
           </label>
           <label>
             위
@@ -1021,19 +1198,19 @@ function WritingView({
             <span>배율</span>
             <button
               type="button"
-              onClick={() => changePaper({ zoom: clampNumber((paper.zoom || DEFAULT_PAPER.zoom) - 0.1, 0.35, 1.25, DEFAULT_PAPER.zoom) })}
-              disabled={(paper.zoom || DEFAULT_PAPER.zoom) <= 0.35}
+              onClick={() => changePaper({ zoom: clampNumber((paper.zoom || DEFAULT_PAPER.zoom) - 0.1, MIN_PAPER_ZOOM, MAX_PAPER_ZOOM, DEFAULT_PAPER.zoom) })}
+              disabled={(paper.zoom || DEFAULT_PAPER.zoom) <= MIN_PAPER_ZOOM}
             >
               -
             </button>
             <input
               type="number"
               min="35"
-              max="125"
+              max="250"
               step="5"
               value={Math.round((paper.zoom || DEFAULT_PAPER.zoom) * 100)}
               onChange={(event) => {
-                const zoom = clampNumber(Number(event.target.value) / 100, 0.35, 1.25, DEFAULT_PAPER.zoom);
+                const zoom = clampNumber(Number(event.target.value) / 100, MIN_PAPER_ZOOM, MAX_PAPER_ZOOM, DEFAULT_PAPER.zoom);
                 changePaper({ zoom });
               }}
               aria-label="용지 배율 퍼센트"
@@ -1041,8 +1218,8 @@ function WritingView({
             <span>%</span>
             <button
               type="button"
-              onClick={() => changePaper({ zoom: clampNumber((paper.zoom || DEFAULT_PAPER.zoom) + 0.1, 0.35, 1.25, DEFAULT_PAPER.zoom) })}
-              disabled={(paper.zoom || DEFAULT_PAPER.zoom) >= 1.25}
+              onClick={() => changePaper({ zoom: clampNumber((paper.zoom || DEFAULT_PAPER.zoom) + 0.1, MIN_PAPER_ZOOM, MAX_PAPER_ZOOM, DEFAULT_PAPER.zoom) })}
+              disabled={(paper.zoom || DEFAULT_PAPER.zoom) >= MAX_PAPER_ZOOM}
             >
               +
             </button>
@@ -1051,9 +1228,8 @@ function WritingView({
       )}
 
       <div className={`writing-canvas ${paper.enabled ? "paper-mode" : ""}`} style={paperStyle}>
-        <SearchBox query={query} results={searchResults} onQuery={onQuery} onSelectChapter={onSelectChapter} />
         {paper.enabled ? (
-          <PagedManuscript
+          <PagedPaperManuscript
             body={chapter.body}
             paper={paper}
             editorFontSize={editorFontSize}
@@ -1061,13 +1237,12 @@ function WritingView({
             onUpdateBody={onUpdateBody}
           />
         ) : (
-          <textarea
-            className="manuscript"
-            spellCheck="false"
-            aria-label="본문"
-            value={chapter.body}
-            style={{ fontSize: `${editorFontPx}px`, fontFamily: fontStack(paper.fontFamily) }}
-            onChange={(event) => onUpdateBody(event.target.value)}
+          <RichManuscript
+            body={chapter.body}
+            fontSizePx={editorFontPx}
+            fontFamily={paper.fontFamily}
+            textIndent={paper.textIndent || 0}
+            onUpdateBody={onUpdateBody}
           />
         )}
       </div>
@@ -1075,9 +1250,80 @@ function WritingView({
   );
 }
 
-function SearchBox({ query, results, onQuery, onSelectChapter }) {
+function RichManuscript({ body, fontSizePx, fontFamily, textIndent, onUpdateBody }) {
+  const editorRef = useRef(null);
+  const lastBodyRef = useRef(body || "");
+
+  const writeBodyToEditor = (value) => {
+    const editor = editorRef.current;
+    if (!editor) return;
+    const lines = String(value || "").split("\n");
+    editor.replaceChildren(
+      ...lines.map((line) => {
+        const block = document.createElement("div");
+        block.className = "manuscript-line";
+        if (line) {
+          block.textContent = line;
+        } else {
+          block.append(document.createElement("br"));
+        }
+        return block;
+      }),
+    );
+  };
+
+  const readEditorBody = () => {
+    const editor = editorRef.current;
+    if (!editor) return "";
+    const blocks = Array.from(editor.children);
+    if (!blocks.length) return editor.innerText.replace(/\n$/, "");
+    return blocks.map((block) => block.innerText.replace(/\n$/, "")).join("\n");
+  };
+
+  useEffect(() => {
+    const nextBody = body || "";
+    const editor = editorRef.current;
+    if (!editor) return;
+    if (document.activeElement === editor && lastBodyRef.current === nextBody) return;
+    if (lastBodyRef.current === nextBody && editor.children.length) return;
+    writeBodyToEditor(nextBody);
+    lastBodyRef.current = nextBody;
+  }, [body]);
+
+  const handleInput = () => {
+    const nextBody = readEditorBody();
+    lastBodyRef.current = nextBody;
+    onUpdateBody(nextBody);
+  };
+
+  const handlePaste = (event) => {
+    event.preventDefault();
+    const text = event.clipboardData?.getData("text/plain") || "";
+    document.execCommand("insertText", false, text);
+  };
+
   return (
-    <div className="search-panel">
+    <div
+      ref={editorRef}
+      className="manuscript rich-manuscript"
+      contentEditable
+      suppressContentEditableWarning
+      spellCheck="false"
+      aria-label="본문"
+      style={{
+        fontSize: `${fontSizePx}px`,
+        fontFamily: fontStack(fontFamily),
+        "--manuscript-text-indent": `${textIndent}px`,
+      }}
+      onInput={handleInput}
+      onPaste={handlePaste}
+    />
+  );
+}
+
+function SearchBox({ className = "", query, results, onQuery, onSelectChapter }) {
+  return (
+    <div className={`search-panel ${className}`.trim()}>
       <input placeholder="원고 검색..." value={query} onChange={(event) => onQuery(event.target.value)} />
       {query.trim() && (
         <div className="search-results">
@@ -1100,45 +1346,55 @@ function textUnit(char) {
 
 function getPaperTextMetrics(paper, fontSizePt) {
   const fontSize = ptToPx(fontSizePt);
-  const preset = PAPER_PRESETS[paper.size] || PAPER_PRESETS.a4;
+  const dimensions = getPaperDimensions(paper);
   const margins = paper.margins || DEFAULT_PAPER.margins;
-  const contentWidth = Math.max(120, preset.width - margins.left - margins.right);
-  const contentHeight = Math.max(160, preset.height - margins.top - margins.bottom);
+  const preset = getPaperPreset(paper);
+  const contentWidth = Math.max(120, dimensions.width - margins.left - margins.right);
+  const contentHeight = Math.max(160, dimensions.height - margins.top - margins.bottom);
+  const indentUnits = Math.max(0, (paper.textIndent || 0) / (fontSize * 0.9));
+  const charsPerLine = Math.max(8, Math.floor(contentWidth / (fontSize * 0.9)));
+  const lineHeightCorrection = preset?.lineHeightCorrection || 1;
   return {
-    charsPerLine: Math.max(8, Math.floor(contentWidth / (fontSize * 0.9))),
-    linesPerPage: Math.max(4, Math.floor(contentHeight / (fontSize * paper.lineHeight))),
+    charsPerLine,
+    firstLineChars: Math.max(4, Math.floor(charsPerLine - indentUnits)),
+    linesPerPage: Math.max(4, Math.floor(contentHeight / (fontSize * paper.lineHeight * lineHeightCorrection))),
   };
 }
 
 function paginateText(text, paper, fontSizePt) {
-  const { charsPerLine, linesPerPage } = getPaperTextMetrics(paper, fontSizePt);
+  const { charsPerLine, firstLineChars, linesPerPage } = getPaperTextMetrics(paper, fontSizePt);
   const pages = [""];
   let pageIndex = 0;
   let lineUnits = 0;
   let usedLines = 1;
+  let paragraphLineIndex = 0;
 
-  const startNextPage = () => {
+  const startNextPage = (continuesParagraph = false) => {
     if (pages[pageIndex] === "") return;
     pages.push("");
     pageIndex += 1;
     lineUnits = 0;
     usedLines = 1;
+    paragraphLineIndex = continuesParagraph ? Math.max(1, paragraphLineIndex) : 0;
   };
+  const currentLineLimit = () => (paragraphLineIndex === 0 ? firstLineChars : charsPerLine);
 
   for (const char of text || "") {
     if (char === "\n") {
       pages[pageIndex] += char;
       lineUnits = 0;
       usedLines += 1;
-      if (usedLines > linesPerPage) startNextPage();
+      paragraphLineIndex = 0;
+      if (usedLines > linesPerPage) startNextPage(false);
       continue;
     }
 
     const unit = textUnit(char);
-    if (lineUnits + unit > charsPerLine) {
+    if (lineUnits + unit > currentLineLimit()) {
       lineUnits = 0;
       usedLines += 1;
-      if (usedLines > linesPerPage) startNextPage();
+      paragraphLineIndex += 1;
+      if (usedLines > linesPerPage) startNextPage(true);
     }
 
     pages[pageIndex] += char;
@@ -1148,27 +1404,31 @@ function paginateText(text, paper, fontSizePt) {
   return pages.length ? pages : [""];
 }
 
-function getVisualLines(text, charsPerLine) {
-  const lines = [{ start: 0, end: 0 }];
+function getVisualLines(text, charsPerLine, firstLineChars = charsPerLine, startsParagraph = true) {
+  const lines = [{ start: 0, end: 0, indented: startsParagraph }];
   let lineStart = 0;
   let lineUnits = 0;
+  let paragraphLineIndex = startsParagraph ? 0 : 1;
+  const currentLineLimit = () => (paragraphLineIndex === 0 ? firstLineChars : charsPerLine);
 
   for (let index = 0; index < text.length; index += 1) {
     const char = text[index];
     if (char === "\n") {
       lines[lines.length - 1].end = index;
-      lines.push({ start: index + 1, end: index + 1 });
+      lines.push({ start: index + 1, end: index + 1, indented: true });
       lineStart = index + 1;
       lineUnits = 0;
+      paragraphLineIndex = 0;
       continue;
     }
 
     const unit = textUnit(char);
-    if (lineUnits + unit > charsPerLine && index > lineStart) {
+    if (lineUnits + unit > currentLineLimit() && index > lineStart) {
       lines[lines.length - 1].end = index;
-      lines.push({ start: index, end: index });
+      lines.push({ start: index, end: index, indented: false });
       lineStart = index;
       lineUnits = 0;
+      paragraphLineIndex += 1;
     }
 
     lineUnits += unit;
@@ -1176,6 +1436,19 @@ function getVisualLines(text, charsPerLine) {
   }
 
   return lines;
+}
+
+function PaperTextPreview({ page, charsPerLine, firstLineChars, startsParagraph, style }) {
+  const lines = getVisualLines(page, charsPerLine, firstLineChars, startsParagraph);
+  return (
+    <div className="paper-text-preview" aria-hidden="true" style={style}>
+      {lines.map((line, index) => (
+        <div className={`paper-preview-line${line.indented ? " indented" : ""}`} key={index}>
+          {page.slice(line.start, line.end) || "\u00a0"}
+        </div>
+      ))}
+    </div>
+  );
 }
 
 function getVisualLineIndex(lines, offset) {
@@ -1228,11 +1501,12 @@ function PagedManuscript({ body, paper, editorFontSize, editorFontFamily, onUpda
   const composingRef = useRef(false);
   const frozenPagesRef = useRef(null);
   const [, forceCompositionRender] = useState(0);
+  const [wholeSelection, setWholeSelection] = useState(false);
   const calculatedPages = paginateText(body, paper, editorFontSize);
   const pages = composingRef.current && frozenPagesRef.current ? frozenPagesRef.current : calculatedPages;
-  const { charsPerLine, linesPerPage } = getPaperTextMetrics(paper, editorFontSize);
+  const { charsPerLine, firstLineChars, linesPerPage } = getPaperTextMetrics(paper, editorFontSize);
   const editorFontPx = ptToPx(editorFontSize);
-  const lineHeightPx = editorFontPx * paper.lineHeight;
+  const lineHeightPx = editorFontPx * paper.lineHeight * (getPaperPreset(paper)?.lineHeightCorrection || 1);
   const pageStarts = pages.reduce((starts, page, index) => {
     starts.push(index === 0 ? 0 : starts[index - 1] + pages[index - 1].length);
     return starts;
@@ -1252,6 +1526,7 @@ function PagedManuscript({ body, paper, editorFontSize, editorFontFamily, onUpda
   };
   const pageEnd = (index) => pageStarts[index] + (pages[index]?.length || 0);
   const caretToGlobal = (index, offset) => pageStarts[index] + offset;
+  const pageStartsParagraph = (index) => index === 0 || body[pageStarts[index] - 1] === "\n";
   const resolveGlobalCaret = (offset, bias = "current") => {
     const safeOffset = Math.max(0, Math.min(offset, body.length));
     const index = pages.findIndex((page, pageIndex) => {
@@ -1299,7 +1574,7 @@ function PagedManuscript({ body, paper, editorFontSize, editorFontFamily, onUpda
     const target = pageRefs.current[Math.max(0, Math.min(pendingFocus.index, pageRefs.current.length - 1))];
     if (!target) return;
     target.focus();
-    const visualLines = getVisualLines(target.value, charsPerLine);
+    const visualLines = getVisualLines(target.value, charsPerLine, firstLineChars, pageStartsParagraph(targetIndex));
     const line = pickVisualLineForEdge(target.value, visualLines, pendingFocus.edge);
     const position = getOffsetAtVisualColumn(target.value, line, pendingFocus.column);
     target.setSelectionRange(position, position);
@@ -1307,6 +1582,18 @@ function PagedManuscript({ body, paper, editorFontSize, editorFontFamily, onUpda
   const queueFocus = (focus) => {
     pendingFocusRef.current = focus;
     window.requestAnimationFrame(applyPendingFocus);
+  };
+  const copyWholeDocument = () => {
+    if (!navigator.clipboard?.writeText) return;
+    navigator.clipboard.writeText(body).catch(() => {});
+  };
+  const replaceWholeDocument = (value) => {
+    setWholeSelection(false);
+    pendingFocusRef.current = { offset: value.length, bias: "next" };
+    onUpdateBody(value);
+  };
+  const clearWholeSelection = () => {
+    if (wholeSelection) setWholeSelection(false);
   };
   const focusPageAtColumn = (index, column, edge) => {
     queueFocus({ index, column, edge });
@@ -1322,9 +1609,61 @@ function PagedManuscript({ body, paper, editorFontSize, editorFontFamily, onUpda
   };
   const handlePageKeyDown = (event, index, page) => {
     if (composingRef.current || event.nativeEvent?.isComposing) return;
+    const key = event.key.toLowerCase();
+
+    if ((event.ctrlKey || event.metaKey) && key === "a") {
+      event.preventDefault();
+      setWholeSelection(true);
+      window.requestAnimationFrame(() => {
+        pageRefs.current.forEach((element) => {
+          if (!element) return;
+          element.setSelectionRange(0, element.value.length);
+        });
+        event.currentTarget.focus();
+      });
+      return;
+    }
+
+    if (wholeSelection) {
+      if ((event.ctrlKey || event.metaKey) && key === "c") {
+        event.preventDefault();
+        copyWholeDocument();
+        return;
+      }
+
+      if ((event.ctrlKey || event.metaKey) && key === "x") {
+        event.preventDefault();
+        copyWholeDocument();
+        replaceWholeDocument("");
+        return;
+      }
+
+      if (event.key === "Backspace" || event.key === "Delete") {
+        event.preventDefault();
+        replaceWholeDocument("");
+        return;
+      }
+
+      if (event.key === "Enter") {
+        event.preventDefault();
+        replaceWholeDocument("\n");
+        return;
+      }
+
+      if (event.key.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey) {
+        event.preventDefault();
+        replaceWholeDocument(event.key);
+        return;
+      }
+
+      if (!event.ctrlKey && !event.metaKey && !event.shiftKey && !event.altKey) {
+        clearWholeSelection();
+      }
+    }
+
     const selectionStart = event.currentTarget.selectionStart;
     const selectionEnd = event.currentTarget.selectionEnd;
-    const pageLines = getVisualLines(page, charsPerLine);
+    const pageLines = getVisualLines(page, charsPerLine, firstLineChars, pageStartsParagraph(index));
     const lineIndex = getVisualLineIndex(pageLines, selectionStart);
     const line = pageLines[lineIndex];
     const visualColumn = getVisualColumn(page, line, selectionStart);
@@ -1390,7 +1729,7 @@ function PagedManuscript({ body, paper, editorFontSize, editorFontFamily, onUpda
       event.currentTarget.selectionStart === intent.start && event.currentTarget.selectionEnd === intent.end;
     if (!stayed) return;
 
-    const pageLines = getVisualLines(page, charsPerLine);
+    const pageLines = getVisualLines(page, charsPerLine, firstLineChars, pageStartsParagraph(index));
     const lineIndex = getVisualLineIndex(pageLines, event.currentTarget.selectionStart);
     const line = pageLines[lineIndex];
     const visualColumn = getVisualColumn(page, line, event.currentTarget.selectionStart);
@@ -1414,11 +1753,17 @@ function PagedManuscript({ body, paper, editorFontSize, editorFontFamily, onUpda
       focusPageAtColumn(index - 1, visualColumn, "end");
     }
   };
+  const handlePagePaste = (event) => {
+    if (!wholeSelection) return;
+    event.preventDefault();
+    replaceWholeDocument(event.clipboardData?.getData("text/plain") || "");
+  };
 
   useEffect(() => {
     applyPendingFocus();
   });
   const handleCompositionStart = () => {
+    clearWholeSelection();
     composingRef.current = true;
     frozenPagesRef.current = [...pages];
     pendingFocusRef.current = null;
@@ -1436,8 +1781,19 @@ function PagedManuscript({ body, paper, editorFontSize, editorFontFamily, onUpda
     <div className="paper-pages" aria-label="페이지 원고">
       {pages.map((page, index) => (
         <div className="paper-page-frame" key={index}>
-          <div className="paper-page">
+          <div className={`paper-page${wholeSelection ? " whole-selected" : ""}`}>
             <div className="page-number">{index + 1}</div>
+            <PaperTextPreview
+              page={page}
+              charsPerLine={charsPerLine}
+              firstLineChars={firstLineChars}
+              startsParagraph={pageStartsParagraph(index)}
+              style={{
+                fontSize: `${editorFontPx}px`,
+                fontFamily: fontStack(editorFontFamily),
+                "--page-line-height-px": `${lineHeightPx}px`,
+              }}
+            />
             <textarea
               className="paged-manuscript"
               spellCheck="false"
@@ -1446,17 +1802,145 @@ function PagedManuscript({ body, paper, editorFontSize, editorFontFamily, onUpda
               style={{
                 fontSize: `${editorFontPx}px`,
                 fontFamily: fontStack(editorFontFamily),
-                "--page-text-lines": Math.max(1, getVisualLines(page, charsPerLine).length),
+                "--page-text-lines": Math.max(
+                  1,
+                  getVisualLines(page, charsPerLine, firstLineChars, pageStartsParagraph(index)).length,
+                ),
                 "--page-line-height-px": `${lineHeightPx}px`,
               }}
               ref={(element) => {
                 pageRefs.current[index] = element;
               }}
+              onMouseDown={clearWholeSelection}
               onChange={(event) => updatePage(index, event.target.value, event)}
               onKeyDown={(event) => handlePageKeyDown(event, index, page)}
               onKeyUp={(event) => handlePageKeyUp(event, index, page)}
+              onPaste={handlePagePaste}
               onCompositionStart={handleCompositionStart}
               onCompositionEnd={(event) => handleCompositionEnd(event, index)}
+            />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function renderPaperEditorPage(element, page, startsParagraph) {
+  const paragraphs = String(page || "").split("\n");
+  element.replaceChildren(
+    ...paragraphs.map((paragraph, index) => {
+      const block = document.createElement("div");
+      block.className = `paper-edit-paragraph${index === 0 && !startsParagraph ? " continuation" : ""}`;
+      if (paragraph) {
+        block.textContent = paragraph;
+      } else {
+        block.append(document.createElement("br"));
+      }
+      return block;
+    }),
+  );
+}
+
+function readPaperEditorPage(element) {
+  if (!element) return "";
+  const blocks = Array.from(element.children);
+  if (!blocks.length) return element.innerText.replace(/\n$/, "");
+  return blocks.map((block) => block.innerText.replace(/\n$/, "")).join("\n");
+}
+
+function PaperPageEditor({
+  page,
+  index,
+  startsParagraph,
+  editorFontPx,
+  editorFontFamily,
+  onFocusPage,
+  onUpdatePage,
+}) {
+  const editorRef = useRef(null);
+  const lastPageRef = useRef(page || "");
+
+  useEffect(() => {
+    const editor = editorRef.current;
+    if (!editor) return;
+    const nextPage = page || "";
+    if (document.activeElement === editor) return;
+    if (lastPageRef.current === nextPage && editor.children.length) return;
+    renderPaperEditorPage(editor, nextPage, startsParagraph);
+    lastPageRef.current = nextPage;
+  }, [page, startsParagraph]);
+
+  const handleInput = () => {
+    const nextPage = readPaperEditorPage(editorRef.current);
+    lastPageRef.current = nextPage;
+    onUpdatePage(index, nextPage);
+  };
+
+  const handlePaste = (event) => {
+    event.preventDefault();
+    document.execCommand("insertText", false, event.clipboardData?.getData("text/plain") || "");
+  };
+
+  const handleBlur = () => {
+    const editor = editorRef.current;
+    if (!editor) return;
+    const nextPage = page || "";
+    if (lastPageRef.current === nextPage && editor.children.length) return;
+    renderPaperEditorPage(editor, nextPage, startsParagraph);
+    lastPageRef.current = nextPage;
+  };
+
+  return (
+    <div
+      ref={editorRef}
+      className="paged-manuscript paper-rich-manuscript"
+      contentEditable
+      suppressContentEditableWarning
+      spellCheck="false"
+      aria-label={`본문 ${index + 1}쪽`}
+      style={{
+        fontSize: `${editorFontPx}px`,
+        fontFamily: fontStack(editorFontFamily),
+      }}
+      onFocus={() => onFocusPage(index)}
+      onBlur={handleBlur}
+      onInput={handleInput}
+      onPaste={handlePaste}
+    />
+  );
+}
+
+function PagedPaperManuscript({ body, paper, editorFontSize, editorFontFamily, onUpdateBody }) {
+  const pages = paginateText(body, paper, editorFontSize);
+  const [focusedPage, setFocusedPage] = useState(null);
+  const editorFontPx = ptToPx(editorFontSize);
+  const pageStarts = pages.reduce((starts, page, index) => {
+    starts.push(index === 0 ? 0 : starts[index - 1] + pages[index - 1].length);
+    return starts;
+  }, []);
+  const pageStartsParagraph = (index) => index === 0 || body[pageStarts[index] - 1] === "\n";
+
+  const updatePage = (index, value) => {
+    const start = pageStarts[index] || 0;
+    const end = start + (pages[index]?.length || 0);
+    onUpdateBody(`${body.slice(0, start)}${value}${body.slice(end)}`);
+  };
+
+  return (
+    <div className="paper-pages" aria-label="페이지 원고">
+      {pages.map((page, index) => (
+        <div className="paper-page-frame" key={index}>
+          <div className={`paper-page${focusedPage === index ? " editing" : ""}`}>
+            <div className="page-number">{index + 1}</div>
+            <PaperPageEditor
+              page={page}
+              index={index}
+              startsParagraph={pageStartsParagraph(index)}
+              editorFontPx={editorFontPx}
+              editorFontFamily={editorFontFamily}
+              onFocusPage={setFocusedPage}
+              onUpdatePage={updatePage}
             />
           </div>
         </div>
