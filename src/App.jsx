@@ -10,6 +10,33 @@ const SETTINGS_SECTIONS = [
   { id: "beats", title: "플롯 보드", type: "cards" },
   { id: "relationships", title: "관계도", type: "relationships" },
 ];
+const PAPER_PRESETS = {
+  a4: { label: "A4", width: 794, height: 1123 },
+  b5: { label: "B5", width: 665, height: 940 },
+};
+const DEFAULT_PAPER = {
+  enabled: false,
+  size: "a4",
+  margins: { top: 54, right: 58, bottom: 54, left: 58 },
+  marginUnit: "px",
+  fontFamily: "Iowan Old Style",
+  lineHeight: 1.8,
+  zoom: 0.85,
+};
+const FALLBACK_FONTS = [
+  "Iowan Old Style",
+  "Georgia",
+  "Nanum Myeongjo",
+  "Malgun Gothic",
+  "Arial",
+  "serif",
+];
+const MARGIN_UNITS = {
+  px: { label: "px", factor: 1 },
+  mm: { label: "mm", factor: 96 / 25.4 },
+  pt: { label: "pt", factor: 96 / 72 },
+};
+const ptToPx = (pt) => pt * (96 / 72);
 
 const now = () => new Date().toISOString();
 const todayKey = () => new Date().toISOString().slice(0, 10);
@@ -82,6 +109,14 @@ function normalizeState(raw) {
   const fallback = sampleProject();
   const base = raw && Array.isArray(raw.projects) ? raw : { activeProjectId: fallback.id, projects: [fallback] };
   const projects = (base.projects.length ? base.projects : [fallback]).map(normalizeProject);
+  const paper = {
+    ...DEFAULT_PAPER,
+    ...(base.preferences?.paper || {}),
+    margins: {
+      ...DEFAULT_PAPER.margins,
+      ...(base.preferences?.paper?.margins || {}),
+    },
+  };
   return {
     activeProjectId: projects.some((project) => project.id === base.activeProjectId)
       ? base.activeProjectId
@@ -89,12 +124,56 @@ function normalizeState(raw) {
     projects,
     preferences: {
       editorFontSize: Number(base.preferences?.editorFontSize || 19),
+      paper: {
+        ...paper,
+        size: PAPER_PRESETS[paper.size] ? paper.size : DEFAULT_PAPER.size,
+        marginUnit: MARGIN_UNITS[paper.marginUnit] ? paper.marginUnit : DEFAULT_PAPER.marginUnit,
+        fontFamily:
+          typeof paper.fontFamily === "string" && paper.fontFamily.trim()
+            ? paper.fontFamily
+            : DEFAULT_PAPER.fontFamily,
+        lineHeight: clampNumber(paper.lineHeight, 1.2, 2.4, DEFAULT_PAPER.lineHeight),
+        zoom: clampNumber(paper.zoom, 0.35, 1.25, DEFAULT_PAPER.zoom),
+        margins: {
+          top: clampNumber(paper.margins.top, 20, 140, DEFAULT_PAPER.margins.top),
+          right: clampNumber(paper.margins.right, 20, 140, DEFAULT_PAPER.margins.right),
+          bottom: clampNumber(paper.margins.bottom, 20, 140, DEFAULT_PAPER.margins.bottom),
+          left: clampNumber(paper.margins.left, 20, 140, DEFAULT_PAPER.margins.left),
+        },
+      },
     },
     trash: {
       projects: base.trash?.projects || [],
       chapters: base.trash?.chapters || [],
     },
   };
+}
+
+function clampNumber(value, min, max, fallback) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return fallback;
+  return Math.max(min, Math.min(max, number));
+}
+
+function marginToUnit(px, unit) {
+  return Math.round((px / (MARGIN_UNITS[unit]?.factor || 1)) * 10) / 10;
+}
+
+function marginFromUnit(value, unit, fallbackPx) {
+  const factor = MARGIN_UNITS[unit]?.factor || 1;
+  return clampNumber(Number(value) * factor, 20, 140, fallbackPx);
+}
+
+function fontStack(fontFamily) {
+  const safeFont = (fontFamily || DEFAULT_PAPER.fontFamily).replace(/"/g, '\\"');
+  return `"${safeFont}", "Nanum Myeongjo", serif`;
+}
+
+async function loadLocalFontFamilies() {
+  if (typeof globalThis.queryLocalFonts !== "function") return FALLBACK_FONTS;
+  const fonts = await globalThis.queryLocalFonts();
+  const families = fonts.map((font) => font.family).filter(Boolean);
+  return [...new Set([...families, ...FALLBACK_FONTS])].sort((a, b) => a.localeCompare(b));
 }
 
 function loadInitialState() {
@@ -590,6 +669,7 @@ export default function App() {
                 query={query}
                 searchResults={searchResults}
                 editorFontSize={state.preferences?.editorFontSize || 19}
+                paper={state.preferences?.paper || DEFAULT_PAPER}
                 onQuery={setQuery}
                 onSelectChapter={selectChapter}
                 onUpdateProject={updateProject}
@@ -765,6 +845,7 @@ function WritingView({
   query,
   searchResults,
   editorFontSize,
+  paper,
   onQuery,
   onSelectChapter,
   onUpdateProject,
@@ -773,13 +854,58 @@ function WritingView({
   onUpdatePreferences,
 }) {
   const progress = chapter.goal > 0 ? Math.min(100, Math.round((countText(chapter.body) / chapter.goal) * 100)) : 0;
+  const [fontFamilies, setFontFamilies] = useState(() =>
+    [...new Set([paper.fontFamily, ...FALLBACK_FONTS])].filter(Boolean),
+  );
   const changeFontSize = (delta) => {
     const nextSize = Math.max(14, Math.min(30, editorFontSize + delta));
     onUpdatePreferences({ editorFontSize: nextSize });
   };
+  const editorFontPx = ptToPx(editorFontSize);
+  const paperPreset = PAPER_PRESETS[paper.size] || PAPER_PRESETS.a4;
+  const changePaper = (patch) => {
+    onUpdatePreferences({
+      paper: {
+        ...paper,
+        ...patch,
+        margins: {
+          ...(paper.margins || DEFAULT_PAPER.margins),
+          ...(patch.margins || {}),
+        },
+      },
+    });
+  };
+  const changeMargin = (side, value) => {
+    changePaper({
+      margins: {
+        [side]: marginFromUnit(value, paper.marginUnit || DEFAULT_PAPER.marginUnit, DEFAULT_PAPER.margins[side]),
+      },
+    });
+  };
+  const paperStyle = {
+    "--paper-width": `${paperPreset.width}px`,
+    "--paper-height": `${paperPreset.height}px`,
+    "--paper-margin-top": `${paper.margins.top}px`,
+    "--paper-margin-right": `${paper.margins.right}px`,
+    "--paper-margin-bottom": `${paper.margins.bottom}px`,
+    "--paper-margin-left": `${paper.margins.left}px`,
+    "--paper-line-height": paper.lineHeight,
+    "--editor-font-family": fontStack(paper.fontFamily),
+    "--paper-zoom": paper.zoom,
+    "--paper-scaled-width": `${paperPreset.width * paper.zoom}px`,
+    "--paper-scaled-height": `${paperPreset.height * paper.zoom}px`,
+  };
+  const refreshFonts = async () => {
+    try {
+      const families = await loadLocalFontFamilies();
+      setFontFamilies(families);
+    } catch {
+      setFontFamilies([...new Set([paper.fontFamily, ...FALLBACK_FONTS])].filter(Boolean));
+    }
+  };
 
   return (
-    <section className="editor-panel">
+    <section className={`editor-panel ${paper.enabled ? "paper-enabled" : ""}`}>
       <header className="editor-header">
         <div className="project-meta">
           <input
@@ -818,25 +944,132 @@ function WritingView({
         <div className="font-size-control" aria-label="글자 크기">
           <span>글자</span>
           <button type="button" onClick={() => changeFontSize(-1)} disabled={editorFontSize <= 14}>-</button>
-          <strong>{editorFontSize}</strong>
+          <strong>{editorFontSize}pt</strong>
           <button type="button" onClick={() => changeFontSize(1)} disabled={editorFontSize >= 30}>+</button>
         </div>
+        <button
+          type="button"
+          className={`text-button paper-toggle ${paper.enabled ? "active" : ""}`}
+          onClick={() => changePaper({ enabled: !paper.enabled })}
+        >
+          용지
+        </button>
         <div className="goal-meter" aria-label="챕터 목표 진행률">
           <span style={{ width: `${progress}%` }} />
         </div>
         <div className={`save-state ${saveStatus === "저장 중" ? "dirty" : ""}`}>{saveStatus}</div>
       </div>
 
-      <div className="writing-canvas">
+      {paper.enabled && (
+        <div className="paper-toolbar" aria-label="편집 용지 설정">
+          <label>
+            용지
+            <select value={paper.size} onChange={(event) => changePaper({ size: event.target.value })}>
+              {Object.entries(PAPER_PRESETS).map(([value, preset]) => (
+                <option key={value} value={value}>{preset.label}</option>
+              ))}
+            </select>
+          </label>
+          <label className="font-family-control">
+            폰트
+            <select
+              value={paper.fontFamily || DEFAULT_PAPER.fontFamily}
+              onChange={(event) => changePaper({ fontFamily: event.target.value })}
+            >
+              {fontFamilies.map((font) => (
+                <option key={font} value={font}>{font}</option>
+              ))}
+            </select>
+          </label>
+          <button type="button" className="text-button" onClick={refreshFonts}>읽기</button>
+          <label>
+            단위
+            <select value={paper.marginUnit || DEFAULT_PAPER.marginUnit} onChange={(event) => changePaper({ marginUnit: event.target.value })}>
+              {Object.entries(MARGIN_UNITS).map(([value, unit]) => (
+                <option key={value} value={value}>{unit.label}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            위
+            <input type="number" min="0" step="0.5" value={marginToUnit(paper.margins.top, paper.marginUnit)} onChange={(event) => changeMargin("top", event.target.value)} />
+          </label>
+          <label>
+            아래
+            <input type="number" min="0" step="0.5" value={marginToUnit(paper.margins.bottom, paper.marginUnit)} onChange={(event) => changeMargin("bottom", event.target.value)} />
+          </label>
+          <label>
+            왼쪽
+            <input type="number" min="0" step="0.5" value={marginToUnit(paper.margins.left, paper.marginUnit)} onChange={(event) => changeMargin("left", event.target.value)} />
+          </label>
+          <label>
+            오른쪽
+            <input type="number" min="0" step="0.5" value={marginToUnit(paper.margins.right, paper.marginUnit)} onChange={(event) => changeMargin("right", event.target.value)} />
+          </label>
+          <label>
+            줄간격
+            <input
+              type="number"
+              min="1.2"
+              max="2.4"
+              step="0.1"
+              value={paper.lineHeight}
+              onChange={(event) => changePaper({ lineHeight: clampNumber(event.target.value, 1.2, 2.4, DEFAULT_PAPER.lineHeight) })}
+            />
+          </label>
+          <div className="paper-zoom-control" aria-label="용지 배율">
+            <span>배율</span>
+            <button
+              type="button"
+              onClick={() => changePaper({ zoom: clampNumber((paper.zoom || DEFAULT_PAPER.zoom) - 0.1, 0.35, 1.25, DEFAULT_PAPER.zoom) })}
+              disabled={(paper.zoom || DEFAULT_PAPER.zoom) <= 0.35}
+            >
+              -
+            </button>
+            <input
+              type="number"
+              min="35"
+              max="125"
+              step="5"
+              value={Math.round((paper.zoom || DEFAULT_PAPER.zoom) * 100)}
+              onChange={(event) => {
+                const zoom = clampNumber(Number(event.target.value) / 100, 0.35, 1.25, DEFAULT_PAPER.zoom);
+                changePaper({ zoom });
+              }}
+              aria-label="용지 배율 퍼센트"
+            />
+            <span>%</span>
+            <button
+              type="button"
+              onClick={() => changePaper({ zoom: clampNumber((paper.zoom || DEFAULT_PAPER.zoom) + 0.1, 0.35, 1.25, DEFAULT_PAPER.zoom) })}
+              disabled={(paper.zoom || DEFAULT_PAPER.zoom) >= 1.25}
+            >
+              +
+            </button>
+          </div>
+        </div>
+      )}
+
+      <div className={`writing-canvas ${paper.enabled ? "paper-mode" : ""}`} style={paperStyle}>
         <SearchBox query={query} results={searchResults} onQuery={onQuery} onSelectChapter={onSelectChapter} />
-        <textarea
-          className="manuscript"
-          spellCheck="false"
-          aria-label="본문"
-          value={chapter.body}
-          style={{ fontSize: `${editorFontSize}px` }}
-          onChange={(event) => onUpdateBody(event.target.value)}
-        />
+        {paper.enabled ? (
+          <PagedManuscript
+            body={chapter.body}
+            paper={paper}
+            editorFontSize={editorFontSize}
+            editorFontFamily={paper.fontFamily}
+            onUpdateBody={onUpdateBody}
+          />
+        ) : (
+          <textarea
+            className="manuscript"
+            spellCheck="false"
+            aria-label="본문"
+            value={chapter.body}
+            style={{ fontSize: `${editorFontPx}px`, fontFamily: fontStack(paper.fontFamily) }}
+            onChange={(event) => onUpdateBody(event.target.value)}
+          />
+        )}
       </div>
     </section>
   );
@@ -857,6 +1090,377 @@ function SearchBox({ query, results, onQuery, onSelectChapter }) {
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+function textUnit(char) {
+  return char.charCodeAt(0) < 128 ? 0.55 : 1;
+}
+
+function getPaperTextMetrics(paper, fontSizePt) {
+  const fontSize = ptToPx(fontSizePt);
+  const preset = PAPER_PRESETS[paper.size] || PAPER_PRESETS.a4;
+  const margins = paper.margins || DEFAULT_PAPER.margins;
+  const contentWidth = Math.max(120, preset.width - margins.left - margins.right);
+  const contentHeight = Math.max(160, preset.height - margins.top - margins.bottom);
+  return {
+    charsPerLine: Math.max(8, Math.floor(contentWidth / (fontSize * 0.9))),
+    linesPerPage: Math.max(4, Math.floor(contentHeight / (fontSize * paper.lineHeight))),
+  };
+}
+
+function paginateText(text, paper, fontSizePt) {
+  const { charsPerLine, linesPerPage } = getPaperTextMetrics(paper, fontSizePt);
+  const pages = [""];
+  let pageIndex = 0;
+  let lineUnits = 0;
+  let usedLines = 1;
+
+  const startNextPage = () => {
+    if (pages[pageIndex] === "") return;
+    pages.push("");
+    pageIndex += 1;
+    lineUnits = 0;
+    usedLines = 1;
+  };
+
+  for (const char of text || "") {
+    if (char === "\n") {
+      pages[pageIndex] += char;
+      lineUnits = 0;
+      usedLines += 1;
+      if (usedLines > linesPerPage) startNextPage();
+      continue;
+    }
+
+    const unit = textUnit(char);
+    if (lineUnits + unit > charsPerLine) {
+      lineUnits = 0;
+      usedLines += 1;
+      if (usedLines > linesPerPage) startNextPage();
+    }
+
+    pages[pageIndex] += char;
+    lineUnits += unit;
+  }
+
+  return pages.length ? pages : [""];
+}
+
+function getVisualLines(text, charsPerLine) {
+  const lines = [{ start: 0, end: 0 }];
+  let lineStart = 0;
+  let lineUnits = 0;
+
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index];
+    if (char === "\n") {
+      lines[lines.length - 1].end = index;
+      lines.push({ start: index + 1, end: index + 1 });
+      lineStart = index + 1;
+      lineUnits = 0;
+      continue;
+    }
+
+    const unit = textUnit(char);
+    if (lineUnits + unit > charsPerLine && index > lineStart) {
+      lines[lines.length - 1].end = index;
+      lines.push({ start: index, end: index });
+      lineStart = index;
+      lineUnits = 0;
+    }
+
+    lineUnits += unit;
+    lines[lines.length - 1].end = index + 1;
+  }
+
+  return lines;
+}
+
+function getVisualLineIndex(lines, offset) {
+  let index = 0;
+  for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
+    if (offset >= lines[lineIndex].start) index = lineIndex;
+  }
+  return index;
+}
+
+function getLastMeaningfulLineIndex(text, lines) {
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    if (text.slice(lines[index].start, lines[index].end).trim().length > 0) return index;
+  }
+  return 0;
+}
+
+function getMeaningfulTextEnd(text) {
+  const match = text.match(/\s*$/);
+  return match ? text.length - match[0].length : text.length;
+}
+
+function getVisualColumn(text, line, offset) {
+  let column = 0;
+  for (let index = line.start; index < Math.min(offset, line.end); index += 1) {
+    column += textUnit(text[index]);
+  }
+  return column;
+}
+
+function getOffsetAtVisualColumn(text, line, column) {
+  let currentColumn = 0;
+  for (let index = line.start; index < line.end; index += 1) {
+    const nextColumn = currentColumn + textUnit(text[index]);
+    if (nextColumn > column) return index;
+    currentColumn = nextColumn;
+  }
+  return line.end;
+}
+
+function pickVisualLineForEdge(text, lines, edge) {
+  if (edge === "start") return lines[0];
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    if (text.slice(lines[index].start, lines[index].end).trim().length > 0) return lines[index];
+  }
+  return lines[lines.length - 1];
+}
+
+function PagedManuscript({ body, paper, editorFontSize, editorFontFamily, onUpdateBody }) {
+  const composingRef = useRef(false);
+  const frozenPagesRef = useRef(null);
+  const [, forceCompositionRender] = useState(0);
+  const calculatedPages = paginateText(body, paper, editorFontSize);
+  const pages = composingRef.current && frozenPagesRef.current ? frozenPagesRef.current : calculatedPages;
+  const { charsPerLine, linesPerPage } = getPaperTextMetrics(paper, editorFontSize);
+  const editorFontPx = ptToPx(editorFontSize);
+  const lineHeightPx = editorFontPx * paper.lineHeight;
+  const pageStarts = pages.reduce((starts, page, index) => {
+    starts.push(index === 0 ? 0 : starts[index - 1] + pages[index - 1].length);
+    return starts;
+  }, []);
+  const pageRefs = useRef([]);
+  const pendingFocusRef = useRef(null);
+  const arrowIntentRef = useRef(null);
+  const updatePage = (index, value, event) => {
+    const activeElement = pageRefs.current[index];
+    const isComposing = composingRef.current || event?.nativeEvent?.isComposing;
+    const nextOffset = !isComposing && activeElement ? pageStarts[index] + activeElement.selectionStart : null;
+    const nextPages = [...pages];
+    nextPages[index] = value;
+    if (isComposing) frozenPagesRef.current = nextPages;
+    if (nextOffset !== null) pendingFocusRef.current = { offset: nextOffset, bias: "next" };
+    onUpdateBody(nextPages.join(""));
+  };
+  const pageEnd = (index) => pageStarts[index] + (pages[index]?.length || 0);
+  const caretToGlobal = (index, offset) => pageStarts[index] + offset;
+  const resolveGlobalCaret = (offset, bias = "current") => {
+    const safeOffset = Math.max(0, Math.min(offset, body.length));
+    const index = pages.findIndex((page, pageIndex) => {
+      const start = pageStarts[pageIndex];
+      const end = pageEnd(pageIndex);
+      if (bias === "next" && pageIndex > 0 && safeOffset === start) return true;
+      if (bias === "previous" && safeOffset === end) return true;
+      return safeOffset >= start && safeOffset < end;
+    });
+    const pageIndex = index === -1 ? pages.length - 1 : index;
+    return { index: pageIndex, offset: safeOffset - pageStarts[pageIndex] };
+  };
+  const applyPendingFocus = () => {
+    if (composingRef.current) return;
+    const pendingFocus = pendingFocusRef.current;
+    if (pendingFocus === null) return;
+    pendingFocusRef.current = null;
+
+    if (Number.isFinite(pendingFocus?.pageIndex)) {
+      const targetIndex = Math.max(0, Math.min(pendingFocus.pageIndex, pageRefs.current.length - 1));
+      const target = pageRefs.current[targetIndex];
+      if (!target) return;
+      target.focus();
+      const requestedOffset = pendingFocus.pageOffset ?? 0;
+      const offset =
+        pendingFocus.trimEnd && requestedOffset >= target.value.length
+          ? getMeaningfulTextEnd(target.value)
+          : Math.max(0, Math.min(requestedOffset, target.value.length));
+      target.setSelectionRange(offset, offset);
+      return;
+    }
+
+    if (typeof pendingFocus === "number" || Number.isFinite(pendingFocus?.offset)) {
+      const targetCaret =
+        typeof pendingFocus === "number"
+          ? resolveGlobalCaret(pendingFocus)
+          : resolveGlobalCaret(pendingFocus.offset, pendingFocus.bias);
+      const target = pageRefs.current[targetCaret.index];
+      if (!target) return;
+      target.focus();
+      target.setSelectionRange(targetCaret.offset, targetCaret.offset);
+      return;
+    }
+
+    const target = pageRefs.current[Math.max(0, Math.min(pendingFocus.index, pageRefs.current.length - 1))];
+    if (!target) return;
+    target.focus();
+    const visualLines = getVisualLines(target.value, charsPerLine);
+    const line = pickVisualLineForEdge(target.value, visualLines, pendingFocus.edge);
+    const position = getOffsetAtVisualColumn(target.value, line, pendingFocus.column);
+    target.setSelectionRange(position, position);
+  };
+  const queueFocus = (focus) => {
+    pendingFocusRef.current = focus;
+    window.requestAnimationFrame(applyPendingFocus);
+  };
+  const focusPageAtColumn = (index, column, edge) => {
+    queueFocus({ index, column, edge });
+  };
+  const rememberArrowIntent = (event, index) => {
+    if (!["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(event.key)) return;
+    arrowIntentRef.current = {
+      key: event.key,
+      index,
+      start: event.currentTarget.selectionStart,
+      end: event.currentTarget.selectionEnd,
+    };
+  };
+  const handlePageKeyDown = (event, index, page) => {
+    if (composingRef.current || event.nativeEvent?.isComposing) return;
+    const selectionStart = event.currentTarget.selectionStart;
+    const selectionEnd = event.currentTarget.selectionEnd;
+    const pageLines = getVisualLines(page, charsPerLine);
+    const lineIndex = getVisualLineIndex(pageLines, selectionStart);
+    const line = pageLines[lineIndex];
+    const visualColumn = getVisualColumn(page, line, selectionStart);
+    const lastMeaningfulLineIndex = getLastMeaningfulLineIndex(page, pageLines);
+    const isLastVisualLine = lineIndex >= lastMeaningfulLineIndex;
+    const meaningfulEnd = getMeaningfulTextEnd(page);
+    const inTrailingWhitespace = selectionStart > meaningfulEnd;
+    const atMeaningfulEnd = selectionStart >= meaningfulEnd && selectionEnd >= meaningfulEnd;
+
+    if (inTrailingWhitespace && ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)) {
+      event.preventDefault();
+      event.currentTarget.setSelectionRange(meaningfulEnd, meaningfulEnd);
+      return;
+    }
+
+    if (event.key === "ArrowDown" && isLastVisualLine) {
+      event.preventDefault();
+      if (index < pages.length - 1) focusPageAtColumn(index + 1, visualColumn, "start");
+      return;
+    }
+
+    if (event.key === "ArrowRight" && atMeaningfulEnd) {
+      event.preventDefault();
+      if (index < pages.length - 1) queueFocus({ pageIndex: index + 1, pageOffset: 0 });
+      return;
+    }
+
+    if (event.key === "ArrowLeft" && selectionStart === 0 && selectionEnd === 0 && index > 0) {
+      event.preventDefault();
+      queueFocus({ pageIndex: index - 1, pageOffset: pages[index - 1].length, trimEnd: true });
+      return;
+    }
+
+    rememberArrowIntent(event, index);
+
+    const leadingWhitespaceSelected = index > 0 && selectionStart === selectionEnd && /^\s*$/.test(page.slice(0, selectionStart));
+    if (event.key === "Delete" && selectionStart === selectionEnd && selectionStart === page.length && index < pages.length - 1) {
+      event.preventDefault();
+      const globalCaret = caretToGlobal(index, selectionStart);
+      if (globalCaret >= body.length) return;
+      const nextBody = `${body.slice(0, globalCaret)}${body.slice(globalCaret + 1)}`;
+      pendingFocusRef.current = { offset: globalCaret, bias: "previous" };
+      onUpdateBody(nextBody);
+      return;
+    }
+
+    if (event.key !== "Backspace" || !leadingWhitespaceSelected) return;
+
+    event.preventDefault();
+    const globalCaret = caretToGlobal(index, selectionStart);
+    if (globalCaret <= 0) return;
+    const nextBody = `${body.slice(0, globalCaret - 1)}${body.slice(globalCaret)}`;
+    pendingFocusRef.current = { offset: globalCaret - 1, bias: "previous" };
+    onUpdateBody(nextBody);
+  };
+  const handlePageKeyUp = (event, index, page) => {
+    if (composingRef.current || event.nativeEvent?.isComposing) return;
+    const intent = arrowIntentRef.current;
+    if (!intent || intent.index !== index || intent.key !== event.key) return;
+    arrowIntentRef.current = null;
+
+    const stayed =
+      event.currentTarget.selectionStart === intent.start && event.currentTarget.selectionEnd === intent.end;
+    if (!stayed) return;
+
+    const pageLines = getVisualLines(page, charsPerLine);
+    const lineIndex = getVisualLineIndex(pageLines, event.currentTarget.selectionStart);
+    const line = pageLines[lineIndex];
+    const visualColumn = getVisualColumn(page, line, event.currentTarget.selectionStart);
+
+    if (event.key === "ArrowRight" && event.currentTarget.selectionStart === page.length && index < pages.length - 1) {
+      queueFocus({ pageIndex: index + 1, pageOffset: 0 });
+      return;
+    }
+
+    if (event.key === "ArrowLeft" && event.currentTarget.selectionStart === 0 && index > 0) {
+      queueFocus({ pageIndex: index - 1, pageOffset: pages[index - 1].length, trimEnd: true });
+      return;
+    }
+
+    if (event.key === "ArrowDown" && lineIndex === pageLines.length - 1 && index < pages.length - 1) {
+      focusPageAtColumn(index + 1, visualColumn, "start");
+      return;
+    }
+
+    if (event.key === "ArrowUp" && lineIndex === 0 && index > 0) {
+      focusPageAtColumn(index - 1, visualColumn, "end");
+    }
+  };
+
+  useEffect(() => {
+    applyPendingFocus();
+  });
+  const handleCompositionStart = () => {
+    composingRef.current = true;
+    frozenPagesRef.current = [...pages];
+    pendingFocusRef.current = null;
+  };
+  const handleCompositionEnd = (event, index) => {
+    const globalCaret = pageStarts[index] + event.currentTarget.selectionStart;
+    composingRef.current = false;
+    frozenPagesRef.current = null;
+    pendingFocusRef.current = { offset: globalCaret, bias: "next" };
+    forceCompositionRender((value) => value + 1);
+    window.requestAnimationFrame(applyPendingFocus);
+  };
+
+  return (
+    <div className="paper-pages" aria-label="페이지 원고">
+      {pages.map((page, index) => (
+        <div className="paper-page-frame" key={index}>
+          <div className="paper-page">
+            <div className="page-number">{index + 1}</div>
+            <textarea
+              className="paged-manuscript"
+              spellCheck="false"
+              aria-label={`본문 ${index + 1}쪽`}
+              value={page}
+              style={{
+                fontSize: `${editorFontPx}px`,
+                fontFamily: fontStack(editorFontFamily),
+                "--page-text-lines": Math.max(1, getVisualLines(page, charsPerLine).length),
+                "--page-line-height-px": `${lineHeightPx}px`,
+              }}
+              ref={(element) => {
+                pageRefs.current[index] = element;
+              }}
+              onChange={(event) => updatePage(index, event.target.value, event)}
+              onKeyDown={(event) => handlePageKeyDown(event, index, page)}
+              onKeyUp={(event) => handlePageKeyUp(event, index, page)}
+              onCompositionStart={handleCompositionStart}
+              onCompositionEnd={(event) => handleCompositionEnd(event, index)}
+            />
+          </div>
+        </div>
+      ))}
     </div>
   );
 }

@@ -65,6 +65,10 @@ button {
   grid-template-rows: auto auto minmax(0, 1fr);
 }
 
+.app-shell.focus-mode .editor-panel.paper-enabled {
+  grid-template-rows: auto auto auto minmax(0, 1fr);
+}
+
 .app-shell.focus-mode .editor-header {
   padding: 10px 20px 8px;
 }
@@ -338,6 +342,10 @@ h1 {
   grid-template-rows: auto auto minmax(0, 1fr);
 }
 
+.editor-panel.paper-enabled {
+  grid-template-rows: auto auto auto minmax(0, 1fr);
+}
+
 .editor-header {
   justify-content: space-between;
   gap: 18px;
@@ -482,6 +490,89 @@ h1 {
   text-align: center;
 }
 
+.paper-toggle.active {
+  border-color: rgba(35, 109, 107, 0.45);
+  color: var(--accent-dark);
+  background: #eef7f4;
+}
+
+.paper-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  overflow-x: auto;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  padding: 8px 28px;
+  background: rgba(255, 253, 248, 0.7);
+}
+
+.paper-toolbar label {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.paper-toolbar select,
+.paper-toolbar input {
+  width: 76px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  outline: 0;
+  padding: 5px 8px;
+  background: var(--panel);
+  color: var(--ink);
+}
+
+.paper-toolbar select {
+  width: 88px;
+}
+
+.font-family-control select {
+  width: 180px;
+}
+
+.paper-zoom-control {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.paper-zoom-control button {
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--accent-dark);
+  font-weight: 900;
+  line-height: 1;
+}
+
+.paper-zoom-control button:disabled {
+  cursor: not-allowed;
+  opacity: 0.42;
+}
+
+.paper-zoom-control input {
+  width: 58px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  outline: 0;
+  padding: 5px 8px;
+  background: var(--panel);
+  color: var(--ink);
+  text-align: right;
+}
+
 .search-panel {
   position: relative;
   margin: 0;
@@ -539,6 +630,85 @@ h1 {
   grid-template-rows: auto minmax(0, 1fr);
   gap: 10px;
   padding: 0 28px 12px;
+}
+
+.writing-canvas.paper-mode {
+  overflow: auto;
+  justify-items: center;
+  align-items: start;
+  grid-template-rows: auto minmax(0, 1fr);
+  padding: 0 28px 28px;
+  background:
+    linear-gradient(90deg, rgba(37, 32, 28, 0.04) 1px, transparent 1px),
+    linear-gradient(180deg, rgba(37, 32, 28, 0.035) 1px, transparent 1px);
+  background-size: 28px 28px;
+}
+
+.writing-canvas.paper-mode .search-panel {
+  width: min(var(--paper-width), 100%);
+}
+
+.paper-pages {
+  display: grid;
+  width: 100%;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, var(--paper-scaled-width)), var(--paper-scaled-width)));
+  justify-content: center;
+  justify-items: start;
+  gap: 22px;
+  padding-bottom: 24px;
+}
+
+.paper-page-frame {
+  width: var(--paper-scaled-width);
+  height: var(--paper-scaled-height);
+}
+
+.paper-page {
+  position: relative;
+  width: var(--paper-width);
+  height: var(--paper-height);
+  border: 1px solid #d8cec1;
+  border-radius: 3px;
+  background: #fffefa;
+  box-shadow: 0 18px 42px rgba(38, 28, 18, 0.18);
+  transform: scale(var(--paper-zoom));
+  transform-origin: top left;
+}
+
+.page-number {
+  position: absolute;
+  right: 14px;
+  bottom: 10px;
+  z-index: 1;
+  color: #b4a99d;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.paged-manuscript {
+  width: 100%;
+  height: calc(
+    var(--paper-margin-top) +
+    var(--paper-margin-bottom) +
+    (var(--page-text-lines) * var(--page-line-height-px))
+  );
+  max-height: 100%;
+  min-height: 0;
+  margin: 0;
+  resize: none;
+  border: 0;
+  border-radius: 3px;
+  outline: 0;
+  overflow: hidden;
+  padding:
+    var(--paper-margin-top)
+    var(--paper-margin-right)
+    var(--paper-margin-bottom)
+    var(--paper-margin-left);
+  background: transparent;
+  color: #201a15;
+  font-family: var(--editor-font-family, "Iowan Old Style", Georgia, "Nanum Myeongjo", serif);
+  line-height: var(--paper-line-height);
 }
 
 .manuscript {
