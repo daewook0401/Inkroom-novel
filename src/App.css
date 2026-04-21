@@ -451,6 +451,37 @@ h1 {
   background: var(--accent);
 }
 
+.font-size-control {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.font-size-control button {
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--accent-dark);
+  font-weight: 900;
+  line-height: 1;
+}
+
+.font-size-control button:disabled {
+  cursor: not-allowed;
+  opacity: 0.42;
+}
+
+.font-size-control strong {
+  min-width: 24px;
+  color: var(--ink);
+  text-align: center;
+}
+
 .search-panel {
   position: relative;
   margin: 0;
@@ -528,6 +559,7 @@ h1 {
   line-height: 1.88;
 }
 
+.settings-page,
 .settings-view,
 .stats-view {
   min-height: 0;
@@ -541,6 +573,65 @@ h1 {
   gap: 16px;
 }
 
+.settings-page {
+  display: grid;
+  grid-template-columns: 210px minmax(0, 1fr);
+  gap: 16px;
+}
+
+.settings-subnav {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+}
+
+.settings-subnav a {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 58px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px;
+  color: var(--muted);
+  background: var(--panel);
+  text-decoration: none;
+}
+
+.settings-subnav a.active {
+  border-color: rgba(35, 109, 107, 0.45);
+  color: var(--accent-dark);
+  background: #eef7f4;
+}
+
+.settings-subnav strong,
+.settings-subnav span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-subnav strong {
+  color: inherit;
+  font-size: 14px;
+}
+
+.settings-subnav span {
+  min-width: 28px;
+  border-radius: 999px;
+  padding: 3px 8px;
+  color: white;
+  background: var(--gold);
+  font-size: 12px;
+  font-weight: 800;
+  text-align: center;
+}
+
+.settings-content {
+  min-width: 0;
+}
+
 .settings-column,
 .report-panel {
   border: 1px solid var(--line);
@@ -549,8 +640,13 @@ h1 {
   background: rgba(255, 253, 248, 0.82);
 }
 
+.full-settings-column {
+  min-height: calc(100vh - 96px);
+}
+
 .relation-column {
   min-width: 0;
+  min-height: calc(100vh - 96px);
 }
 
 .relationship-form {
@@ -787,10 +883,15 @@ h1 {
     flex-direction: column;
   }
 
+  .settings-page,
   .settings-view,
   .stats-board,
   .report-grid {
     grid-template-columns: 1fr;
+  }
+
+  .settings-subnav {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .editor-header {

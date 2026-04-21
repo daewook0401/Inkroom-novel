@@ -1,9 +1,15 @@
-import { NavLink, Navigate, Route, Routes } from "react-router-dom";
+import { NavLink, Navigate, Route, Routes, useLocation, useParams } from "react-router-dom";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { loadDesktopState, saveDesktopState } from "./desktopDb.js";
 
 const STORAGE_KEY = "inkroom:react:v3";
 const PREVIOUS_KEYS = ["inkroom:react:v2", "inkroom:react:v1", "inkroom:v1"];
+const SETTINGS_SECTIONS = [
+  { id: "characters", title: "캐릭터", type: "cards" },
+  { id: "world", title: "설정 노트", type: "cards" },
+  { id: "beats", title: "플롯 보드", type: "cards" },
+  { id: "relationships", title: "관계도", type: "relationships" },
+];
 
 const now = () => new Date().toISOString();
 const todayKey = () => new Date().toISOString().slice(0, 10);
@@ -55,7 +61,7 @@ function normalizeProject(project) {
     logline: project.logline || "",
     activeChapterId: project.activeChapterId || chapters[0]?.id,
     stats: project.stats || {},
-    chapters: chapters.map((chapter, index) => ({
+    chapters: chapters.map((chapter) => ({
       id: chapter.id || uid("chapter"),
       title: chapter.title || "소제목",
       body: chapter.body || "",
@@ -81,6 +87,9 @@ function normalizeState(raw) {
       ? base.activeProjectId
       : projects[0].id,
     projects,
+    preferences: {
+      editorFontSize: Number(base.preferences?.editorFontSize || 19),
+    },
     trash: {
       projects: base.trash?.projects || [],
       chapters: base.trash?.chapters || [],
@@ -135,6 +144,7 @@ function projectToMarkdown(project) {
       return `- ${from} -> ${to}: ${item.label || "관계"}`;
     })
     .join("\n");
+
   return `# ${project.title || "제목 없음"}\n\n${project.logline || ""}\n\n${chapters}\n\n---\n\n## 캐릭터\n\n${characters || "- 없음"}\n\n## 설정\n\n${world || "- 없음"}\n\n## 플롯\n\n${beats || "- 없음"}\n\n## 관계\n\n${relationships || "- 없음"}\n`;
 }
 
@@ -220,9 +230,7 @@ export default function App() {
     let cancelled = false;
     loadDesktopState()
       .then((desktopState) => {
-        if (!cancelled && desktopState) {
-          setState(normalizeState(desktopState));
-        }
+        if (!cancelled && desktopState) setState(normalizeState(desktopState));
       })
       .catch(() => {});
     return () => {
@@ -291,11 +299,21 @@ export default function App() {
     );
   };
 
+  const updatePreferences = (patch) => {
+    setState((current) => ({
+      ...current,
+      preferences: {
+        ...(current.preferences || {}),
+        ...patch,
+      },
+    }));
+  };
+
   const createProject = () => {
     const project = sampleProject();
     project.title = "새 작품";
     project.logline = "한 줄 로그라인을 적어보세요.";
-    project.chapters[0].title = "1화";
+    project.chapters[0].title = "소제목";
     project.chapters[0].body = "";
     project.characters = [];
     project.world = [];
@@ -495,8 +513,7 @@ export default function App() {
       return;
     }
 
-    const filename = `${slug(activeProject.title)}.${format}`;
-    downloadText(filename, projectToMarkdown(activeProject), "text/markdown;charset=utf-8");
+    downloadText(`${slug(activeProject.title)}.md`, projectToMarkdown(activeProject), "text/markdown;charset=utf-8");
   };
 
   const importBackup = async (event) => {
@@ -555,16 +572,19 @@ export default function App() {
                 saveStatus={saveStatus}
                 query={query}
                 searchResults={searchResults}
+                editorFontSize={state.preferences?.editorFontSize || 19}
                 onQuery={setQuery}
                 onSelectChapter={selectChapter}
                 onUpdateProject={updateProject}
                 onUpdateChapter={updateChapter}
                 onUpdateBody={updateBody}
+                onUpdatePreferences={updatePreferences}
               />
             }
           />
+          <Route path="/settings" element={<Navigate to="/settings/characters" replace />} />
           <Route
-            path="/settings"
+            path="/settings/:sectionId"
             element={
               <SettingsView
                 project={activeProject}
@@ -605,11 +625,14 @@ export default function App() {
 }
 
 function TopNav({ saveStatus, focusMode, onToggleFocus, onExport, onImport }) {
+  const location = useLocation();
+  const settingsActive = location.pathname.startsWith("/settings");
+
   return (
     <nav className="top-nav">
       <div className="route-tabs">
         <NavLink to="/write">집필</NavLink>
-        <NavLink to="/settings">설정</NavLink>
+        <NavLink to="/settings/characters" className={settingsActive ? "active" : undefined}>설정</NavLink>
         <NavLink to="/stats">통계</NavLink>
       </div>
       <div className="toolbar-actions">
@@ -713,13 +736,20 @@ function WritingView({
   saveStatus,
   query,
   searchResults,
+  editorFontSize,
   onQuery,
   onSelectChapter,
   onUpdateProject,
   onUpdateChapter,
   onUpdateBody,
+  onUpdatePreferences,
 }) {
   const progress = chapter.goal > 0 ? Math.min(100, Math.round((countText(chapter.body) / chapter.goal) * 100)) : 0;
+  const changeFontSize = (delta) => {
+    const nextSize = Math.max(14, Math.min(30, editorFontSize + delta));
+    onUpdatePreferences({ editorFontSize: nextSize });
+  };
+
   return (
     <section className="editor-panel">
       <header className="editor-header">
@@ -757,6 +787,12 @@ function WritingView({
             onChange={(event) => onUpdateChapter({ goal: Number(event.target.value || 0) })}
           />
         </label>
+        <div className="font-size-control" aria-label="글자 크기">
+          <span>글자</span>
+          <button type="button" onClick={() => changeFontSize(-1)} disabled={editorFontSize <= 14}>-</button>
+          <strong>{editorFontSize}</strong>
+          <button type="button" onClick={() => changeFontSize(1)} disabled={editorFontSize >= 30}>+</button>
+        </div>
         <div className="goal-meter" aria-label="챕터 목표 진행률">
           <span style={{ width: `${progress}%` }} />
         </div>
@@ -770,6 +806,7 @@ function WritingView({
           spellCheck="false"
           aria-label="본문"
           value={chapter.body}
+          style={{ fontSize: `${editorFontSize}px` }}
           onChange={(event) => onUpdateBody(event.target.value)}
         />
       </div>
@@ -797,41 +834,68 @@ function SearchBox({ query, results, onQuery, onSelectChapter }) {
 }
 
 function SettingsView({ project, onNewCard, onOpenCard, onSaveRelationship, onDeleteRelationship }) {
-  const sections = [
-    { id: "characters", title: "캐릭터", items: project.characters },
-    { id: "world", title: "설정 노트", items: project.world },
-    { id: "beats", title: "플롯 보드", items: project.beats },
-  ];
+  const { sectionId } = useParams();
+  const activeSection =
+    SETTINGS_SECTIONS.find((section) => section.id === sectionId) || SETTINGS_SECTIONS[0];
+
   return (
-    <section className="settings-view">
-      {sections.map((section) => (
-        <div className="settings-column" key={section.id}>
-          <div className="section-header">
-            <span>{section.title}</span>
-            <button className="text-button" onClick={() => onNewCard(section.id)}>추가</button>
-          </div>
-          <div className={section.id === "beats" ? "beat-list" : "card-list"}>
-            {section.items.map((item) => (
-              <button
-                className={section.id === "beats" ? "beat-card" : "info-card"}
-                key={item.id}
-                onClick={() => onOpenCard(section.id, item)}
-              >
-                <strong>{item.name || "이름 없음"}</strong>
-                <p>{item.note || "메모 없음"}</p>
-              </button>
-            ))}
-            {section.items.length === 0 && <p className="empty-note">아직 카드가 없습니다.</p>}
-          </div>
-        </div>
-      ))}
-      <RelationshipPanel
-        characters={project.characters}
-        relationships={project.relationships}
-        onSave={onSaveRelationship}
-        onDelete={onDeleteRelationship}
-      />
+    <section className="settings-page">
+      <nav className="settings-subnav" aria-label="설정 분류">
+        {SETTINGS_SECTIONS.map((section) => (
+          <NavLink key={section.id} to={`/settings/${section.id}`}>
+            <strong>{section.title}</strong>
+            <span>{settingCount(project, section.id).toLocaleString()}</span>
+          </NavLink>
+        ))}
+      </nav>
+
+      <div className="settings-content">
+        {activeSection.type === "relationships" ? (
+          <RelationshipPanel
+            characters={project.characters}
+            relationships={project.relationships}
+            onSave={onSaveRelationship}
+            onDelete={onDeleteRelationship}
+          />
+        ) : (
+          <CardSection
+            section={activeSection}
+            items={project[activeSection.id]}
+            onNewCard={onNewCard}
+            onOpenCard={onOpenCard}
+          />
+        )}
+      </div>
     </section>
+  );
+}
+
+function settingCount(project, sectionId) {
+  if (sectionId === "relationships") return project.relationships.length;
+  return project[sectionId]?.length || 0;
+}
+
+function CardSection({ section, items, onNewCard, onOpenCard }) {
+  return (
+    <div className="settings-column full-settings-column">
+      <div className="section-header">
+        <span>{section.title}</span>
+        <button className="text-button" onClick={() => onNewCard(section.id)}>추가</button>
+      </div>
+      <div className={section.id === "beats" ? "beat-list" : "card-list"}>
+        {items.map((item) => (
+          <button
+            className={section.id === "beats" ? "beat-card" : "info-card"}
+            key={item.id}
+            onClick={() => onOpenCard(section.id, item)}
+          >
+            <strong>{item.name || "이름 없음"}</strong>
+            <p>{item.note || "메모 없음"}</p>
+          </button>
+        ))}
+        {items.length === 0 && <p className="empty-note">아직 카드가 없습니다.</p>}
+      </div>
+    </div>
   );
 }
 
