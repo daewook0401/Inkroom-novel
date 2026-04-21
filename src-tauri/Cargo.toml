@@ -1,6 +1,6 @@
 [package]
 name = "inkroom"
-version = "0.1.1"
+version = "0.1.2"
 description = "Inkroom desktop app"
 authors = ["Inkroom"]
 edition = "2021"
