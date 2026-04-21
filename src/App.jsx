@@ -187,6 +187,7 @@ export default function App() {
   const [state, setState] = useState(loadInitialState);
   const [saveStatus, setSaveStatus] = useState("저장됨");
   const [dialog, setDialog] = useState(null);
+  const [notice, setNotice] = useState(null);
   const [draggedChapterId, setDraggedChapterId] = useState(null);
   const [focusMode, setFocusMode] = useState(false);
   const [query, setQuery] = useState("");
@@ -247,6 +248,12 @@ export default function App() {
     }, 220);
     return () => window.clearTimeout(timer);
   }, [state]);
+
+  useEffect(() => {
+    if (!notice) return undefined;
+    const timer = window.setTimeout(() => setNotice(null), 3200);
+    return () => window.clearTimeout(timer);
+  }, [notice]);
 
   const setProjects = (updater) => {
     setState((current) => {
@@ -484,10 +491,16 @@ export default function App() {
     updateProject({ relationships: activeProject.relationships.filter((item) => item.id !== relationshipId) });
   };
 
+  const notifyDownload = (filename) => {
+    setNotice({ id: uid("notice"), message: `${filename} 다운로드를 준비했습니다.` });
+  };
+
   const exportProject = (format) => {
     if (!activeProject) return;
     if (format === "json") {
-      downloadText(`${slug(activeProject.title)}.inkroom.json`, JSON.stringify(state, null, 2), "application/json");
+      const filename = `${slug(activeProject.title)}.inkroom.json`;
+      downloadText(filename, JSON.stringify(state, null, 2), "application/json");
+      notifyDownload(filename);
       return;
     }
 
@@ -505,15 +518,19 @@ export default function App() {
       }
 
       const suffix = selection.trim() ? `-${selection.trim().replace(/\s+/g, "").replace(/,/g, "_")}` : "";
+      const filename = `${slug(activeProject.title)}${suffix}.txt`;
       downloadText(
-        `${slug(activeProject.title)}${suffix}.txt`,
+        filename,
         projectToTxt(activeProject, chapters),
         "text/plain;charset=utf-8",
       );
+      notifyDownload(filename);
       return;
     }
 
-    downloadText(`${slug(activeProject.title)}.md`, projectToMarkdown(activeProject), "text/markdown;charset=utf-8");
+    const filename = `${slug(activeProject.title)}.md`;
+    downloadText(filename, projectToMarkdown(activeProject), "text/markdown;charset=utf-8");
+    notifyDownload(filename);
   };
 
   const importBackup = async (event) => {
@@ -620,6 +637,17 @@ export default function App() {
           onDelete={deleteCard}
         />
       )}
+
+      {notice && <DownloadNotice message={notice.message} onClose={() => setNotice(null)} />}
+    </div>
+  );
+}
+
+function DownloadNotice({ message, onClose }) {
+  return (
+    <div className="download-notice" role="status" aria-live="polite">
+      <span>{message}</span>
+      <button type="button" onClick={onClose} aria-label="알림 닫기">×</button>
     </div>
   );
 }

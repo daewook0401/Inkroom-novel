@@ -784,6 +784,43 @@ h1 {
   background: var(--accent);
 }
 
+.download-notice {
+  position: fixed;
+  z-index: 30;
+  right: 18px;
+  bottom: 18px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: min(420px, calc(100vw - 36px));
+  border: 1px solid rgba(35, 109, 107, 0.35);
+  border-radius: 8px;
+  padding: 12px 14px;
+  color: white;
+  background: var(--accent-dark);
+  box-shadow: var(--shadow);
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.download-notice span {
+  overflow-wrap: anywhere;
+}
+
+.download-notice button {
+  display: grid;
+  flex: 0 0 26px;
+  width: 26px;
+  height: 26px;
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.36);
+  border-radius: 8px;
+  color: white;
+  background: rgba(255, 255, 255, 0.1);
+  font-size: 18px;
+  line-height: 1;
+}
+
 .stats-board {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
