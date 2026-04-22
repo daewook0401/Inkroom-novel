@@ -15,8 +15,10 @@
         "title": "Inkroom",
         "width": 1280,
         "height": 820,
-        "minWidth": 980,
-        "minHeight": 680
+        "minWidth": 620,
+        "minHeight": 620,
+        "resizable": true,
+        "decorations": false
       }
     ],
     "security": {
