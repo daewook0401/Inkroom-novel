@@ -1,8 +1,10 @@
 ﻿import { countText } from "../lib/inkroomCore.js";
 function LibraryPanel({
+  libraryOpen,
   activeProject,
   projects,
   draggedChapterId,
+  onToggleLibrary,
   onCreateProject,
   onSelectProject,
   onDeleteProject,
@@ -17,11 +19,18 @@ function LibraryPanel({
 }) {
   return (
     <aside className="library-panel" aria-label="작품과 챕터">
-      <div className="brand-row">
-        <div>
-          <h1>Inkroom</h1>
-          <p>소설 집필 워크벤치</p>
-        </div>
+      <div className="library-header">
+        <button
+          type="button"
+          className="sidebar-toggle-button"
+          aria-label={libraryOpen ? "작품 패널 닫기" : "작품 패널 열기"}
+          title={libraryOpen ? "작품 패널 닫기" : "작품 패널 열기"}
+          onClick={onToggleLibrary}
+        >
+          <span />
+          <span />
+          <span />
+        </button>
       </div>
 
       <section className="panel-section">

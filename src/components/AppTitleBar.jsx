@@ -20,6 +20,10 @@ function getAppWindow() {
   }
 }
 
+function isDesktopRuntime() {
+  return Boolean(globalThis.__TAURI_INTERNALS__);
+}
+
 function WindowButton({ label, title, onClick, className = "" }) {
   return (
     <button type="button" className={`window-button ${className}`} title={title} onClick={onClick}>
@@ -48,10 +52,11 @@ function WindowResizeHandles({ appWindow }) {
   );
 }
 
-export function AppTitleBar({ focusMode }) {
+export function AppTitleBar() {
   const location = useLocation();
   const settingsActive = location.pathname.startsWith("/settings");
-  const appWindow = getAppWindow();
+  const desktopRuntime = isDesktopRuntime();
+  const appWindow = desktopRuntime ? getAppWindow() : null;
 
   const startDragging = (event) => {
     if (!appWindow || event.button !== 0) return;
@@ -68,7 +73,7 @@ export function AppTitleBar({ focusMode }) {
   return (
     <>
       <header
-        className={`app-titlebar ${focusMode ? "focus-titlebar" : ""}`}
+        className={`app-titlebar ${desktopRuntime ? "desktop-titlebar" : "web-titlebar"}`}
         onMouseDown={startDragging}
         onDoubleClick={toggleMaximize}
       >
@@ -77,21 +82,21 @@ export function AppTitleBar({ focusMode }) {
           <strong>Inkroom</strong>
         </div>
 
-        {!focusMode && (
-          <nav className="titlebar-tabs" aria-label="주요 화면">
-            <NavLink to="/write">집필</NavLink>
-            <NavLink to="/settings/characters" className={settingsActive ? "active" : undefined}>설정</NavLink>
-            <NavLink to="/stats">통계</NavLink>
-          </nav>
-        )}
+        <nav className="titlebar-tabs" aria-label="주요 화면">
+          <NavLink to="/write">집필</NavLink>
+          <NavLink to="/settings/characters" className={settingsActive ? "active" : undefined}>설정</NavLink>
+          <NavLink to="/stats">통계</NavLink>
+        </nav>
 
         <div className="titlebar-spacer" />
 
-        <div className="window-controls">
-          <WindowButton label="-" title="최소화" onClick={() => void appWindow?.minimize().catch(() => {})} />
-          <WindowButton label="□" title="최대화" onClick={() => void appWindow?.toggleMaximize().catch(() => {})} />
-          <WindowButton label="×" title="닫기" className="close" onClick={() => void appWindow?.close().catch(() => {})} />
-        </div>
+        {desktopRuntime && (
+          <div className="window-controls">
+            <WindowButton label="-" title="최소화" onClick={() => void appWindow?.minimize().catch(() => {})} />
+            <WindowButton label="□" title="최대화" onClick={() => void appWindow?.toggleMaximize().catch(() => {})} />
+            <WindowButton label="×" title="닫기" className="close" onClick={() => void appWindow?.close().catch(() => {})} />
+          </div>
+        )}
       </header>
       <WindowResizeHandles appWindow={appWindow} />
     </>

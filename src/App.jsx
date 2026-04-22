@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { loadDesktopState, saveDesktopState } from "./desktopDb.js";
 import { createHwpxBlob } from "./hwpxExport.js";
+import { AppModal } from "./components/AppModal.jsx";
 import { AppTitleBar } from "./components/AppTitleBar.jsx";
 import { CardDialog } from "./components/CardDialog.jsx";
 import { CommandBar } from "./components/CommandBar.jsx";
@@ -18,6 +19,7 @@ import {
   downloadBlob,
   downloadText,
   loadInitialState,
+  normalizeProject,
   normalizeState,
   now,
   parseChapterSelection,
@@ -34,11 +36,13 @@ export default function App() {
   const [state, setState] = useState(loadInitialState);
   const [saveStatus, setSaveStatus] = useState("저장됨");
   const [dialog, setDialog] = useState(null);
+  const [appModal, setAppModal] = useState(null);
   const [notice, setNotice] = useState(null);
   const [draggedChapterId, setDraggedChapterId] = useState(null);
-  const [focusMode, setFocusMode] = useState(false);
+  const [libraryOpen, setLibraryOpen] = useState(true);
   const [query, setQuery] = useState("");
   const fileInputRef = useRef(null);
+  const appModalResolverRef = useRef(null);
 
   const activeProject =
     state.projects.find((project) => project.id === state.activeProjectId) || state.projects[0];
@@ -342,6 +346,22 @@ export default function App() {
     setNotice({ id: uid("notice"), message: `${filename} 다운로드 완료했습니다.` });
   };
 
+  const openAppModal = (options) =>
+    new Promise((resolve) => {
+      appModalResolverRef.current = resolve;
+      setAppModal(options);
+    });
+
+  const resolveAppModal = (value) => {
+    appModalResolverRef.current?.(value);
+    appModalResolverRef.current = null;
+    setAppModal(null);
+  };
+
+  const askText = (options) => openAppModal({ kind: "text", ...options });
+  const askChoice = (options) => openAppModal({ kind: "choice", ...options });
+  const showMessage = (options) => openAppModal({ kind: "message", ...options });
+
   const exportProject = async (format) => {
     if (!activeProject) return;
     if (format === "json") {
@@ -352,15 +372,22 @@ export default function App() {
     }
 
     if (format === "txt") {
-      const selection = window.prompt(
-        "다운로드할 화수를 입력하세요.\n예: 1 / 1,3,5 / 2-4\n비워두면 전체 챕터를 다운로드합니다.",
-        "",
-      );
+      const selection = await askText({
+        title: "TXT 다운로드",
+        message: "다운로드할 화수를 입력하세요. 비워두면 전체 챕터를 다운로드합니다.",
+        label: "화수",
+        placeholder: "예: 1 / 1,3,5 / 2-4",
+        defaultValue: "",
+        confirmText: "다운로드",
+      });
       if (selection === null) return;
 
       const chapters = parseChapterSelection(selection, activeProject.chapters);
       if (!chapters.length) {
-        window.alert("선택된 챕터가 없습니다. 화수를 다시 확인해주세요.");
+        await showMessage({
+          title: "화수를 찾지 못했습니다",
+          message: "선택된 챕터가 없습니다. 화수를 다시 확인해주세요.",
+        });
         return;
       }
 
@@ -376,12 +403,16 @@ export default function App() {
     }
 
     if (format === "hwpx") {
-      const scope = window.prompt(
-        "HWPX로 다운로드할 범위를 선택하세요.\n1: 지금 보는 화수\n2: 전체 작품",
-        "1",
-      );
+      const scope = await askChoice({
+        title: "HWPX 다운로드",
+        message: "HWPX로 다운로드할 범위를 선택하세요.",
+        choices: [
+          { value: "current", label: "지금 보는 화수", description: activeChapter?.title || "현재 선택된 챕터" },
+          { value: "all", label: "전체 작품", description: `${activeProject.chapters.length}개 화수 전체` },
+        ],
+      });
       if (scope === null) return;
-      const currentOnly = scope.trim() !== "2";
+      const currentOnly = scope !== "all";
       const chapters = currentOnly && activeChapter ? [activeChapter] : activeProject.chapters;
       const suffix = currentOnly && activeChapter ? `-${slug(activeChapter.title || "current")}` : "";
       const filename = `${slug(activeProject.title)}${suffix}.hwpx`;
@@ -403,7 +434,10 @@ export default function App() {
       const text = await file.text();
       setState(normalizeState(JSON.parse(text)));
     } catch {
-      window.alert("백업 파일을 불러오지 못했습니다.");
+      await showMessage({
+        title: "불러오기 실패",
+        message: "백업 파일을 불러오지 못했습니다.",
+      });
     } finally {
       event.target.value = "";
     }
@@ -412,13 +446,15 @@ export default function App() {
   if (!activeProject || !activeChapter) return null;
 
   return (
-    <div ref={responsive.ref} className={`app-window layout-${responsive.mode} ${focusMode ? "focus-mode" : ""}`}>
-      <AppTitleBar focusMode={focusMode} />
+    <div ref={responsive.ref} className={`app-window layout-${responsive.mode} ${libraryOpen ? "" : "library-collapsed"}`}>
+      <AppTitleBar />
       <div className="app-shell">
       <LibraryPanel
+        libraryOpen={libraryOpen}
         activeProject={activeProject}
         projects={state.projects}
         draggedChapterId={draggedChapterId}
+        onToggleLibrary={() => setLibraryOpen((value) => !value)}
         onCreateProject={createProject}
         onSelectProject={selectProject}
         onDeleteProject={deleteProject}
@@ -433,15 +469,8 @@ export default function App() {
       />
 
       <main className="workspace-panel">
-        {focusMode && (
-          <button className="focus-exit-button" onClick={() => setFocusMode(false)}>
-            집중 해제
-          </button>
-        )}
         <CommandBar
           saveStatus={saveStatus}
-          focusMode={focusMode}
-          onToggleFocus={() => setFocusMode((value) => !value)}
           onExport={exportProject}
           onImport={() => fileInputRef.current?.click()}
         />
@@ -505,6 +534,7 @@ export default function App() {
       )}
 
       {notice && <DownloadNotice message={notice.message} onClose={() => setNotice(null)} />}
+      <AppModal modal={appModal} onResolve={resolveAppModal} />
     </div>
   );
 }

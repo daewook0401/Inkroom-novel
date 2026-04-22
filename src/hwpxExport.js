@@ -163,7 +163,7 @@ async function copyTemplateToZip(templateZip) {
 export async function createHwpxBlob(project, preferences = {}) {
   const paper = preferences.paper || {};
   const fontFamily = normalizeFontFamily(paper.fontFamily);
-  const fontSize = preferences.editorFontSize || 10;
+  const fontSize = paper.previewFontSize || preferences.editorFontSize || 10;
   const lineHeight = paper.lineHeight || 1.8;
   const textIndent = paper.textIndent || 0;
   const templateZip = await loadBaseTemplate();

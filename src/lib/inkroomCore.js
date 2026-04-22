@@ -44,6 +44,7 @@ const PAPER_PRESETS = {
       left: 8 * MM_TO_PX,
     },
     textIndent: 10 * PT_TO_PX,
+    previewFontSize: 10,
     lineHeightCorrection: 0.95,
   },
 };
@@ -56,6 +57,7 @@ const DEFAULT_PAPER = {
   dimensionUnit: "mm",
   textIndent: 0,
   fontFamily: "Iowan Old Style",
+  previewFontSize: 19,
   lineHeight: 1.8,
   zoom: 0.85,
 };
@@ -181,6 +183,12 @@ function normalizeState(raw) {
           typeof paper.fontFamily === "string" && paper.fontFamily.trim()
             ? paper.fontFamily
             : DEFAULT_PAPER.fontFamily,
+        previewFontSize: clampNumber(
+          paper.previewFontSize ?? base.preferences?.editorFontSize,
+          MIN_EDITOR_FONT_SIZE,
+          MAX_EDITOR_FONT_SIZE,
+          DEFAULT_PAPER.previewFontSize,
+        ),
         lineHeight: clampNumber(paper.lineHeight, 1.2, 2.4, DEFAULT_PAPER.lineHeight),
         zoom: clampNumber(paper.zoom, MIN_PAPER_ZOOM, MAX_PAPER_ZOOM, DEFAULT_PAPER.zoom),
         textIndent: clampNumber(paper.textIndent, 0, 240, DEFAULT_PAPER.textIndent),

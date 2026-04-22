@@ -1,5 +1,5 @@
 ﻿import { useEffect, useMemo, useRef, useState } from "react";
-import { ChapterToolbar, EditorHeader, PaperSettingsPanel } from "./EditorControls.jsx";
+import { ChapterTitleRow, ChapterToolbar, EditorHeader, PaperSettingsPanel } from "./EditorControls.jsx";
 import { usePaperColumns } from "../hooks/usePaperColumns.js";
 import {
   DEFAULT_PAPER,
@@ -44,6 +44,7 @@ function WritingView({
     onUpdatePreferences({ editorFontSize: nextSize });
   };
   const editorFontPx = ptToPx(editorFontSize);
+  const previewFontSize = paper.previewFontSize || DEFAULT_PAPER.previewFontSize;
   const paperDimensions = getPaperDimensions(paper);
   const changePaper = (patch) => {
     onUpdatePreferences({
@@ -73,12 +74,10 @@ function WritingView({
       dimensions: { width: preset.width, height: preset.height },
       margins: preset.margins ? preset.margins : paper.margins,
       textIndent: typeof preset.textIndent === "number" ? preset.textIndent : paper.textIndent,
+      previewFontSize: typeof preset.previewFontSize === "number" ? preset.previewFontSize : paper.previewFontSize,
       ...(preset.margins ? { marginUnit: "mm", dimensionUnit: "mm" } : {}),
     };
-    onUpdatePreferences({
-      paper: nextPaper,
-      ...(size === "kakao" ? { editorFontSize: 10 } : {}),
-    });
+    onUpdatePreferences({ paper: nextPaper });
   };
   const changeDimension = (side, value) => {
     const unit = paper.dimensionUnit || paper.marginUnit || DEFAULT_PAPER.dimensionUnit;
@@ -91,6 +90,7 @@ function WritingView({
   };
   const changeMargin = (side, value) => {
     changePaper({
+      size: "custom",
       margins: {
         [side]: marginFromUnit(value, paper.marginUnit || DEFAULT_PAPER.marginUnit, DEFAULT_PAPER.margins[side]),
       },
@@ -143,6 +143,7 @@ function WritingView({
   return (
     <section className={`editor-panel ${paper.enabled ? "paper-enabled" : ""}`}>
       <EditorHeader project={project} stats={stats} onUpdateProject={onUpdateProject} StatsGrid={StatsGrid} />
+      <ChapterTitleRow chapter={chapter} onUpdateChapter={onUpdateChapter} />
 
       <ChapterToolbar
         chapter={chapter}
@@ -169,6 +170,9 @@ function WritingView({
         defaultPaper={DEFAULT_PAPER}
         minZoom={MIN_PAPER_ZOOM}
         maxZoom={MAX_PAPER_ZOOM}
+        minFontSize={MIN_EDITOR_FONT_SIZE}
+        maxFontSize={MAX_EDITOR_FONT_SIZE}
+        previewFontSize={previewFontSize}
         marginToUnit={marginToUnit}
         onApplyPaperSize={applyPaperSize}
         onChangePaper={(patch) => {
@@ -178,6 +182,11 @@ function WritingView({
           }
           changePaper(patch);
         }}
+        onChangePreviewFontSize={(value) =>
+          changePaper({
+            previewFontSize: clampNumber(value, MIN_EDITOR_FONT_SIZE, MAX_EDITOR_FONT_SIZE, DEFAULT_PAPER.previewFontSize),
+          })
+        }
         onChangeDimension={changeDimension}
         onChangeMargin={changeMargin}
         onStepZoom={stepZoom}
@@ -189,7 +198,7 @@ function WritingView({
           <PagedPaperPreview
             body={chapter.body}
             paper={paper}
-            editorFontSize={editorFontSize}
+            editorFontSize={previewFontSize}
             editorFontFamily={paper.fontFamily}
           />
         ) : (
