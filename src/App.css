@@ -115,12 +115,76 @@ body {
   font-size: 13px;
 }
 
+.window-button-label {
+  display: inline-grid;
+  place-items: center;
+}
+
 .window-button:hover {
   background: rgba(255, 255, 255, 0.11);
 }
 
 .window-button.close:hover {
   background: #c42b1c;
+}
+
+.macos-titlebar {
+  padding-left: 14px;
+}
+
+.macos-titlebar .window-controls {
+  gap: 8px;
+}
+
+.mac-window-button {
+  display: inline-grid;
+  width: 12px;
+  min-width: 12px;
+  height: 12px;
+  align-self: center;
+  place-items: center;
+  border: 0;
+  border-radius: 999px;
+  padding: 0;
+  color: rgba(0, 0, 0, 0);
+  font-size: 8px;
+  font-weight: 700;
+  line-height: 1;
+  transition:
+    transform 120ms ease,
+    filter 120ms ease,
+    color 120ms ease;
+}
+
+.mac-window-button.close {
+  background: #ff5f57;
+}
+
+.mac-window-button.minimize {
+  background: #febc2e;
+}
+
+.mac-window-button.maximize {
+  background: #28c840;
+}
+
+.macos-titlebar:hover .mac-window-button,
+.mac-window-button:focus-visible {
+  color: rgba(0, 0, 0, 0.55);
+}
+
+.mac-window-button:hover {
+  background: inherit;
+  transform: scale(1.06);
+  filter: brightness(0.97);
+}
+
+.mac-window-button.close:hover {
+  background: #ff5f57;
+}
+
+.macos-titlebar .titlebar-spacer {
+  min-width: 0;
 }
 
 .window-resize-layer {
@@ -1209,7 +1273,8 @@ button {
 
 .settings-page,
 .settings-view,
-.stats-view {
+.stats-view,
+.system-page {
   min-height: 0;
   overflow: auto;
   padding: 22px;
@@ -1225,6 +1290,104 @@ button {
   display: grid;
   grid-template-columns: 210px minmax(0, 1fr);
   gap: 16px;
+}
+
+.system-grid {
+  display: grid;
+  gap: 16px;
+}
+
+.system-card {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 18px;
+  background: rgba(255, 253, 248, 0.88);
+}
+
+.system-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.system-card-head strong {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 18px;
+}
+
+.system-card-head p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.system-path-box {
+  border: 1px dashed var(--line);
+  border-radius: 10px;
+  padding: 14px 16px;
+  color: var(--muted);
+  word-break: break-all;
+  background: rgba(255, 255, 255, 0.62);
+}
+
+.system-path-box.filled {
+  color: var(--ink);
+}
+
+.system-card-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.system-font-card {
+  gap: 16px;
+}
+
+.system-font-select {
+  display: grid;
+  gap: 8px;
+}
+
+.system-font-select span {
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.system-font-select select {
+  min-height: 44px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0 12px;
+  background: var(--panel);
+  color: var(--ink);
+}
+
+.font-chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.font-chip {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 7px 11px;
+  color: var(--accent-dark);
+  background: rgba(35, 109, 107, 0.08);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.system-note {
+  margin: 16px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 800;
 }
 
 .settings-subnav {

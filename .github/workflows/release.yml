@@ -1,0 +1,96 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-latest
+            build_args: --target aarch64-apple-darwin
+            artifact_name: macos-dmg
+          - platform: windows-latest
+            build_args: ""
+            artifact_name: windows-exe
+
+    runs-on: ${{ matrix.platform }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: npm
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin' || '' }}
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: ./src-tauri -> target
+
+      - name: Install frontend dependencies
+        run: npm install
+
+      - name: Build Tauri app
+        shell: bash
+        run: |
+          if [ -n "${{ matrix.build_args }}" ]; then
+            npm run desktop:build -- ${{ matrix.build_args }}
+          else
+            npm run desktop:build
+          fi
+
+      - name: Prepare release asset names
+        shell: bash
+        run: |
+          APP_VERSION=$(node -p "require('./package.json').version")
+          mkdir -p release-assets
+          if [ "${{ matrix.platform }}" = "macos-latest" ]; then
+            cp "src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/Inkroom_${APP_VERSION}_aarch64.dmg" "release-assets/Inkroom_${APP_VERSION}_aarch64.dmg"
+          else
+            cp "src-tauri/target/release/inkroom.exe" "release-assets/inkroom.exe"
+          fi
+
+      - name: Upload release asset artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: release-assets/*
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download built assets
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: Inkroom ${{ github.ref_name }}
+          body: |
+            ## 변경 사항
+            - 상단 탭에 `시스템` 화면을 추가했습니다.
+            - 시스템 화면에서 다운로드 폴더와 백업 폴더를 지정할 수 있습니다.
+            - 기본 집필 글꼴 선택과 로컬 폰트 읽기를 시스템 화면으로 옮겼습니다.
+            - 지정한 폴더를 우선 사용해 백업과 일반 다운로드를 저장하도록 정리했습니다.
+          files: |
+            release-assets/**/*.dmg
+            release-assets/**/*.exe

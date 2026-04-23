@@ -73,6 +73,11 @@ const FALLBACK_FONTS = [
   "Arial",
   "serif",
 ];
+const DEFAULT_SYSTEM_PREFERENCES = {
+  downloadDirectory: "",
+  backupDirectory: "",
+  availableFonts: FALLBACK_FONTS,
+};
 const MARGIN_UNITS = {
   px: { label: "px", factor: 1 },
   mm: { label: "mm", factor: 96 / 25.4 },
@@ -170,6 +175,22 @@ function normalizeState(raw) {
     projects,
     preferences: {
       editorFontSize: Number(base.preferences?.editorFontSize || 19),
+      system: {
+        ...DEFAULT_SYSTEM_PREFERENCES,
+        ...(base.preferences?.system || {}),
+        downloadDirectory:
+          typeof base.preferences?.system?.downloadDirectory === "string"
+            ? base.preferences.system.downloadDirectory
+            : DEFAULT_SYSTEM_PREFERENCES.downloadDirectory,
+        backupDirectory:
+          typeof base.preferences?.system?.backupDirectory === "string"
+            ? base.preferences.system.backupDirectory
+            : DEFAULT_SYSTEM_PREFERENCES.backupDirectory,
+        availableFonts:
+          Array.isArray(base.preferences?.system?.availableFonts) && base.preferences.system.availableFonts.length
+            ? [...new Set(base.preferences.system.availableFonts.filter(Boolean))]
+            : DEFAULT_SYSTEM_PREFERENCES.availableFonts,
+      },
       paper: {
         ...paper,
         size: PAPER_PRESETS[paper.size] || paper.size === "custom" ? paper.size : DEFAULT_PAPER.size,
@@ -360,6 +381,7 @@ export {
   MIN_PAPER_ZOOM,
   MAX_PAPER_ZOOM,
   FALLBACK_FONTS,
+  DEFAULT_SYSTEM_PREFERENCES,
   MARGIN_UNITS,
   ptToPx,
   now,

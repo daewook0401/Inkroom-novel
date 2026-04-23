@@ -1,5 +1,8 @@
 ﻿import { Navigate, Route, Routes } from "react-router-dom";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
+import { join } from "@tauri-apps/api/path";
+import { open } from "@tauri-apps/plugin-dialog";
 import { loadDesktopState, saveDesktopState } from "./desktopDb.js";
 import { createHwpxBlob } from "./hwpxExport.js";
 import { AppModal } from "./components/AppModal.jsx";
@@ -10,9 +13,11 @@ import { DownloadNotice } from "./components/DownloadNotice.jsx";
 import { LibraryPanel } from "./components/LibraryPanel.jsx";
 import { SettingsView } from "./components/SettingsView.jsx";
 import { StatsView } from "./components/StatsView.jsx";
+import { SystemView } from "./components/SystemView.jsx";
 import { WritingView } from "./components/WritingView.jsx";
 import { useResponsiveMode } from "./hooks/useResponsiveMode.js";
 import {
+  DEFAULT_SYSTEM_PREFERENCES,
   DEFAULT_PAPER,
   STORAGE_KEY,
   countText,
@@ -29,7 +34,12 @@ import {
   slug,
   todayKey,
   uid,
+  loadLocalFontFamilies,
 } from "./lib/inkroomCore.js";
+
+function isDesktopRuntime() {
+  return Boolean(globalThis.__TAURI_INTERNALS__);
+}
 
 export default function App() {
   const responsive = useResponsiveMode();
@@ -43,6 +53,8 @@ export default function App() {
   const [query, setQuery] = useState("");
   const fileInputRef = useRef(null);
   const appModalResolverRef = useRef(null);
+  const desktopRuntime = isDesktopRuntime();
+  const systemPreferences = state.preferences?.system || DEFAULT_SYSTEM_PREFERENCES;
 
   const activeProject =
     state.projects.find((project) => project.id === state.activeProjectId) || state.projects[0];
@@ -162,7 +174,35 @@ export default function App() {
       ...current,
       preferences: {
         ...(current.preferences || {}),
-        ...patch,
+        ...(typeof patch.editorFontSize !== "undefined" ? { editorFontSize: patch.editorFontSize } : {}),
+        ...(patch.paper
+          ? {
+              paper: {
+                ...(current.preferences?.paper || {}),
+                ...patch.paper,
+                dimensions: {
+                  ...(current.preferences?.paper?.dimensions || {}),
+                  ...(patch.paper.dimensions || {}),
+                },
+                margins: {
+                  ...(current.preferences?.paper?.margins || {}),
+                  ...(patch.paper.margins || {}),
+                },
+              },
+            }
+          : {}),
+        ...(patch.system
+          ? {
+              system: {
+                ...(current.preferences?.system || DEFAULT_SYSTEM_PREFERENCES),
+                ...patch.system,
+                availableFonts:
+                  Array.isArray(patch.system.availableFonts) && patch.system.availableFonts.length
+                    ? [...new Set(patch.system.availableFonts.filter(Boolean))]
+                    : current.preferences?.system?.availableFonts || DEFAULT_SYSTEM_PREFERENCES.availableFonts,
+              },
+            }
+          : {}),
       },
     }));
   };
@@ -346,6 +386,10 @@ export default function App() {
     setNotice({ id: uid("notice"), message: `${filename} 다운로드 완료했습니다.` });
   };
 
+  const notifySaved = (filename, directory) => {
+    setNotice({ id: uid("notice"), message: `${filename} 파일을 ${directory}에 저장했습니다.` });
+  };
+
   const openAppModal = (options) =>
     new Promise((resolve) => {
       appModalResolverRef.current = resolve;
@@ -362,12 +406,82 @@ export default function App() {
   const askChoice = (options) => openAppModal({ kind: "choice", ...options });
   const showMessage = (options) => openAppModal({ kind: "message", ...options });
 
+  const saveToDesktopDirectory = async ({ directory, filename, text, blob }) => {
+    if (!desktopRuntime || !directory) return false;
+    try {
+      const targetPath = await join(directory, filename);
+      if (typeof text === "string") {
+        await invoke("write_text_file", { path: targetPath, contents: text });
+      } else if (blob) {
+        const bytes = new Uint8Array(await blob.arrayBuffer());
+        await invoke("write_binary_file", { path: targetPath, bytes: Array.from(bytes) });
+      } else {
+        return false;
+      }
+      notifySaved(filename, directory);
+      return true;
+    } catch {
+      await showMessage({
+        title: "저장 실패",
+        message: "지정한 폴더에 파일을 저장하지 못했습니다. 시스템 탭에서 폴더를 다시 지정해보세요.",
+      });
+      return true;
+    }
+  };
+
+  const pickSystemDirectory = async (key) => {
+    if (!desktopRuntime) {
+      await showMessage({
+        title: "데스크톱 전용 기능",
+        message: "폴더 지정은 데스크톱 앱에서 사용할 수 있습니다.",
+      });
+      return;
+    }
+
+    const picked = await open({
+      directory: true,
+      multiple: false,
+      recursive: true,
+      title: key === "backupDirectory" ? "백업 폴더 선택" : "다운로드 폴더 선택",
+      defaultPath: systemPreferences[key] || undefined,
+    });
+
+    if (typeof picked === "string" && picked.trim()) {
+      updatePreferences({ system: { [key]: picked } });
+    }
+  };
+
+  const clearSystemDirectory = (key) => {
+    updatePreferences({ system: { [key]: "" } });
+  };
+
+  const refreshSystemFonts = async () => {
+    try {
+      const fonts = await loadLocalFontFamilies();
+      updatePreferences({ system: { availableFonts: fonts } });
+    } catch {
+      await showMessage({
+        title: "폰트 읽기 실패",
+        message: "로컬 폰트를 읽지 못했습니다. 브라우저 또는 시스템 권한을 확인해주세요.",
+      });
+    }
+  };
+
   const exportProject = async (format) => {
     if (!activeProject) return;
     if (format === "json") {
       const filename = `${slug(activeProject.title)}.inkroom.json`;
-      downloadText(filename, JSON.stringify(state, null, 2), "application/json");
-      notifyDownload(filename);
+      const content = JSON.stringify(state, null, 2);
+      if (
+        !(await saveToDesktopDirectory({
+          directory: systemPreferences.backupDirectory,
+          filename,
+          text: content,
+        }))
+      ) {
+        downloadText(filename, content, "application/json");
+        notifyDownload(filename);
+      }
       return;
     }
 
@@ -393,12 +507,17 @@ export default function App() {
 
       const suffix = selection.trim() ? `-${selection.trim().replace(/\s+/g, "").replace(/,/g, "_")}` : "";
       const filename = `${slug(activeProject.title)}${suffix}.txt`;
-      downloadText(
-        filename,
-        projectToTxt(activeProject, chapters),
-        "text/plain;charset=utf-8",
-      );
-      notifyDownload(filename);
+      const content = projectToTxt(activeProject, chapters);
+      if (
+        !(await saveToDesktopDirectory({
+          directory: systemPreferences.downloadDirectory,
+          filename,
+          text: content,
+        }))
+      ) {
+        downloadText(filename, content, "text/plain;charset=utf-8");
+        notifyDownload(filename);
+      }
       return;
     }
 
@@ -417,17 +536,54 @@ export default function App() {
       const suffix = currentOnly && activeChapter ? `-${slug(activeChapter.title || "current")}` : "";
       const filename = `${slug(activeProject.title)}${suffix}.hwpx`;
       const blob = await createHwpxBlob({ ...activeProject, chapters }, state.preferences || {});
-      downloadBlob(filename, blob);
-      notifyDownload(filename);
+      if (
+        !(await saveToDesktopDirectory({
+          directory: systemPreferences.downloadDirectory,
+          filename,
+          blob,
+        }))
+      ) {
+        downloadBlob(filename, blob);
+        notifyDownload(filename);
+      }
       return;
     }
 
     const filename = `${slug(activeProject.title)}.md`;
-    downloadText(filename, projectToMarkdown(activeProject), "text/markdown;charset=utf-8");
-    notifyDownload(filename);
+    const content = projectToMarkdown(activeProject);
+    if (
+      !(await saveToDesktopDirectory({
+        directory: systemPreferences.downloadDirectory,
+        filename,
+        text: content,
+      }))
+    ) {
+      downloadText(filename, content, "text/markdown;charset=utf-8");
+      notifyDownload(filename);
+    }
   };
 
   const importBackup = async (event) => {
+    if (desktopRuntime) {
+      try {
+        const selected = await open({
+          title: "백업 불러오기",
+          multiple: false,
+          defaultPath: systemPreferences.backupDirectory || undefined,
+          filters: [{ name: "Inkroom Backup", extensions: ["json"] }],
+        });
+        if (typeof selected !== "string" || !selected) return;
+        const text = await invoke("read_text_file", { path: selected });
+        setState(normalizeState(JSON.parse(text)));
+      } catch {
+        await showMessage({
+          title: "불러오기 실패",
+          message: "백업 파일을 불러오지 못했습니다.",
+        });
+      }
+      return;
+    }
+
     const file = event.target.files?.[0];
     if (!file) return;
     try {
@@ -472,7 +628,13 @@ export default function App() {
         <CommandBar
           saveStatus={saveStatus}
           onExport={exportProject}
-          onImport={() => fileInputRef.current?.click()}
+          onImport={() => {
+            if (desktopRuntime) {
+              void importBackup();
+              return;
+            }
+            fileInputRef.current?.click();
+          }}
         />
         <input className="hidden-input" ref={fileInputRef} type="file" accept=".json" onChange={importBackup} />
         <Routes>
@@ -503,6 +665,20 @@ export default function App() {
                 onOpenCard={(type, item) => setDialog({ type, id: item.id, name: item.name, note: item.note })}
                 onSaveRelationship={saveRelationship}
                 onDeleteRelationship={deleteRelationship}
+              />
+            }
+          />
+          <Route
+            path="/system"
+            element={
+              <SystemView
+                system={systemPreferences}
+                currentFontFamily={state.preferences?.paper?.fontFamily || DEFAULT_PAPER.fontFamily}
+                onPickDirectory={pickSystemDirectory}
+                onClearDirectory={clearSystemDirectory}
+                onRefreshFonts={refreshSystemFonts}
+                onChangeDefaultFont={(fontFamily) => updatePreferences({ paper: { fontFamily } })}
+                isDesktopRuntime={desktopRuntime}
               />
             }
           />
@@ -538,9 +714,3 @@ export default function App() {
     </div>
   );
 }
-
-
-
-
-
-

@@ -1,6 +1,6 @@
 [package]
 name = "inkroom"
-version = "0.1.5"
+version = "0.1.6"
 description = "Inkroom desktop app"
 authors = ["Inkroom"]
 edition = "2021"
@@ -17,3 +17,4 @@ tauri = { version = "2", features = [] }
 tauri-plugin-sql = { version = "2", features = ["sqlite"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+tauri-plugin-dialog = "2"

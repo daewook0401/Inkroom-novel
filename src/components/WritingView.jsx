@@ -3,7 +3,6 @@ import { ChapterTitleRow, ChapterToolbar, EditorHeader, PaperSettingsPanel } fro
 import { usePaperColumns } from "../hooks/usePaperColumns.js";
 import {
   DEFAULT_PAPER,
-  FALLBACK_FONTS,
   MARGIN_UNITS,
   MAX_EDITOR_FONT_SIZE,
   MAX_PAPER_ZOOM,
@@ -17,7 +16,6 @@ import {
   getPaperDimensions,
   getPaperPreset,
   lengthFromUnit,
-  loadLocalFontFamilies,
   marginFromUnit,
   marginToUnit,
   ptToPx,
@@ -36,9 +34,6 @@ function WritingView({
   onUpdatePreferences,
 }) {
   const progress = chapter.goal > 0 ? Math.min(100, Math.round((countText(chapter.body) / chapter.goal) * 100)) : 0;
-  const [fontFamilies, setFontFamilies] = useState(() =>
-    [...new Set([paper.fontFamily, ...FALLBACK_FONTS])].filter(Boolean),
-  );
   const changeFontSize = (delta) => {
     const nextSize = Math.max(MIN_EDITOR_FONT_SIZE, Math.min(MAX_EDITOR_FONT_SIZE, editorFontSize + delta));
     onUpdatePreferences({ editorFontSize: nextSize });
@@ -131,14 +126,6 @@ function WritingView({
     "--paper-scaled-height": `${paperDimensions.height * paper.zoom}px`,
     "--paper-columns": paperColumns.columns,
   };
-  const refreshFonts = async () => {
-    try {
-      const families = await loadLocalFontFamilies();
-      setFontFamilies(families);
-    } catch {
-      setFontFamilies([...new Set([paper.fontFamily, ...FALLBACK_FONTS])].filter(Boolean));
-    }
-  };
 
   return (
     <section className={`editor-panel ${paper.enabled ? "paper-enabled" : ""}`}>
@@ -151,14 +138,10 @@ function WritingView({
         editorFontSize={editorFontSize}
         minFontSize={MIN_EDITOR_FONT_SIZE}
         maxFontSize={MAX_EDITOR_FONT_SIZE}
-        fontFamilies={fontFamilies}
         paper={paper}
-        defaultPaper={DEFAULT_PAPER}
         indentPt={marginToUnit(paper.textIndent || 0, "pt")}
         onUpdateChapter={onUpdateChapter}
         onChangeFontSize={changeFontSize}
-        onChangePaper={changePaper}
-        onRefreshFonts={refreshFonts}
         onChangeTextIndent={changeTextIndent}
       />
 
@@ -950,4 +933,3 @@ function PagedPaperManuscript({ body, paper, editorFontSize, editorFontFamily, o
 }
 
 export { WritingView };
-

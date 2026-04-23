@@ -55,14 +55,10 @@ export function ChapterToolbar({
   editorFontSize,
   minFontSize,
   maxFontSize,
-  fontFamilies,
   paper,
-  defaultPaper,
   indentPt,
   onUpdateChapter,
   onChangeFontSize,
-  onChangePaper,
-  onRefreshFonts,
   onChangeTextIndent,
 }) {
   return (
@@ -89,22 +85,6 @@ export function ChapterToolbar({
             <strong>{editorFontSize}pt</strong>
             <button type="button" title="글자 크게" onClick={() => onChangeFontSize(1)} disabled={editorFontSize >= maxFontSize}>+</button>
           </div>
-          <label className="toolbar-font-control">
-            <span className="tool-icon" aria-hidden="true">F</span>
-            <select
-              aria-label="폰트"
-              value={paper.fontFamily || defaultPaper.fontFamily}
-              onChange={(event) => onChangePaper({ fontFamily: event.target.value })}
-            >
-              {fontFamilies.map((font) => (
-                <option key={font} value={font}>{font}</option>
-              ))}
-            </select>
-          </label>
-          <button type="button" className="icon-text-button font-refresh-button" title="폰트 읽기" onClick={onRefreshFonts}>
-            <span className="tool-icon" aria-hidden="true">R</span>
-            <span>폰트 읽기</span>
-          </button>
           <label className="indent-control" title="들여쓰기">
             <span className="tool-icon" aria-hidden="true">I</span>
             <input
