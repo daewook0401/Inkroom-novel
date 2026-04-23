@@ -142,6 +142,7 @@ function WritingView({
         indentPt={marginToUnit(paper.textIndent || 0, "pt")}
         onUpdateChapter={onUpdateChapter}
         onChangeFontSize={changeFontSize}
+        onChangePaper={changePaper}
         onChangeTextIndent={changeTextIndent}
       />
 

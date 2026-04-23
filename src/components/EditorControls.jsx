@@ -59,6 +59,7 @@ export function ChapterToolbar({
   indentPt,
   onUpdateChapter,
   onChangeFontSize,
+  onChangePaper,
   onChangeTextIndent,
 }) {
   return (
