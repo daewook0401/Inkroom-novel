@@ -107,6 +107,7 @@ body {
 }
 
 .window-button {
+  position: relative;
   width: 44px;
   height: 100%;
   border: 0;
@@ -118,6 +119,55 @@ body {
 .window-button-label {
   display: inline-grid;
   place-items: center;
+}
+
+.windows-window-controls .window-button-label {
+  overflow: hidden;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+
+.windows-window-controls .window-button::before,
+.windows-window-controls .window-button::after {
+  position: absolute;
+  content: "";
+  pointer-events: none;
+}
+
+.windows-window-controls .window-button.minimize::before {
+  top: 50%;
+  left: 50%;
+  width: 10px;
+  height: 1px;
+  background: currentColor;
+  transform: translate(-50%, -50%);
+}
+
+.windows-window-controls .window-button.maximize::before {
+  top: 50%;
+  left: 50%;
+  width: 9px;
+  height: 9px;
+  border: 1px solid currentColor;
+  transform: translate(-50%, -50%);
+}
+
+.windows-window-controls .window-button.close::before,
+.windows-window-controls .window-button.close::after {
+  top: 50%;
+  left: 50%;
+  width: 12px;
+  height: 1px;
+  background: currentColor;
+}
+
+.windows-window-controls .window-button.close::before {
+  transform: translate(-50%, -50%) rotate(45deg);
+}
+
+.windows-window-controls .window-button.close::after {
+  transform: translate(-50%, -50%) rotate(-45deg);
 }
 
 .window-button:hover {

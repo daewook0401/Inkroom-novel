@@ -50,6 +50,59 @@ function WindowButton({ label, title, onClick, className = "", chromeStyle = "de
   );
 }
 
+function WindowControls({ appWindow, macDesktopRuntime }) {
+  if (macDesktopRuntime) {
+    return (
+      <div className="window-controls mac-window-controls" data-tauri-drag-region="true">
+        <WindowButton
+          label="×"
+          title="닫기"
+          className="close"
+          chromeStyle="mac"
+          onClick={() => void appWindow?.close().catch(() => {})}
+        />
+        <WindowButton
+          label="−"
+          title="최소화"
+          className="minimize"
+          chromeStyle="mac"
+          onClick={() => void appWindow?.minimize().catch(() => {})}
+        />
+        <WindowButton
+          label="+"
+          title="최대화"
+          className="maximize"
+          chromeStyle="mac"
+          onClick={() => void appWindow?.toggleMaximize().catch(() => {})}
+        />
+      </div>
+    );
+  }
+
+  return (
+    <div className="window-controls windows-window-controls">
+      <WindowButton
+        label="-"
+        title="최소화"
+        className="minimize"
+        onClick={() => void appWindow?.minimize().catch(() => {})}
+      />
+      <WindowButton
+        label="□"
+        title="최대화"
+        className="maximize"
+        onClick={() => void appWindow?.toggleMaximize().catch(() => {})}
+      />
+      <WindowButton
+        label="×"
+        title="닫기"
+        className="close"
+        onClick={() => void appWindow?.close().catch(() => {})}
+      />
+    </div>
+  );
+}
+
 function WindowResizeHandles({ appWindow }) {
   if (!appWindow) return null;
 
@@ -97,41 +150,7 @@ export function AppTitleBar() {
         onMouseDown={startDragging}
         onDoubleClick={toggleMaximize}
       >
-        {desktopRuntime && (
-          <div className="window-controls" data-tauri-drag-region={macDesktopRuntime ? "true" : undefined}>
-            {macDesktopRuntime ? (
-              <>
-                <WindowButton
-                  label="×"
-                  title="닫기"
-                  className="close"
-                  chromeStyle="mac"
-                  onClick={() => void appWindow?.close().catch(() => {})}
-                />
-                <WindowButton
-                  label="−"
-                  title="최소화"
-                  className="minimize"
-                  chromeStyle="mac"
-                  onClick={() => void appWindow?.minimize().catch(() => {})}
-                />
-                <WindowButton
-                  label="+"
-                  title="최대화"
-                  className="maximize"
-                  chromeStyle="mac"
-                  onClick={() => void appWindow?.toggleMaximize().catch(() => {})}
-                />
-              </>
-            ) : (
-              <>
-                <WindowButton label="-" title="최소화" onClick={() => void appWindow?.minimize().catch(() => {})} />
-                <WindowButton label="□" title="최대화" onClick={() => void appWindow?.toggleMaximize().catch(() => {})} />
-                <WindowButton label="×" title="닫기" className="close" onClick={() => void appWindow?.close().catch(() => {})} />
-              </>
-            )}
-          </div>
-        )}
+        {desktopRuntime && macDesktopRuntime && <WindowControls appWindow={appWindow} macDesktopRuntime />}
 
         <div className="titlebar-brand">
           <span className="titlebar-icon" aria-hidden="true">I</span>
@@ -146,6 +165,7 @@ export function AppTitleBar() {
         </nav>
 
         <div className="titlebar-spacer" />
+        {desktopRuntime && !macDesktopRuntime && <WindowControls appWindow={appWindow} macDesktopRuntime={false} />}
       </header>
       <WindowResizeHandles appWindow={appWindow} />
     </>
